@@ -69,53 +69,7 @@ def find_catalog_item(
     return None
 
 
-def validate_recommendations(
-    recs: list[Recommendation],
-    catalog: list[CatalogItem],
-) -> list[Recommendation]:
-    """Ensure every recommendation maps to a real catalog item.
-
-    Drops fabricated names and fixes URLs / fields from catalog data.
-
-    Parameters
-    ----------
-    recs:
-        Raw recommendations (potentially from LLM-generated data).
-    catalog:
-        The canonical product catalog.
-
-    Returns
-    -------
-    list[Recommendation]
-        Validated recommendations with correct URLs and metadata.
-    """
-    validated: list[Recommendation] = []
-    seen_ids: set[str] = set()
-
-    for rec in recs:
-        item = find_catalog_item(rec.product_name, catalog)
-        if item is None:
-            logger.warning(
-                "Dropping fabricated recommendation: '%s'",
-                rec.product_name,
-            )
-            continue
-
-        if item.id in seen_ids:
-            continue  # deduplicate
-        seen_ids.add(item.id)
-
-        # Rebuild from catalog data — never trust LLM-generated URLs
-        validated.append(Recommendation(
-            product_name=item.name,
-            url=item.url,
-            duration_minutes=item.duration_minutes,
-            remote_supported=item.remote_supported,
-            adaptive=None,  # set from catalog if available
-            description=item.description[:200] if item.description else "",
-        ))
-
-    return validated
+#optional function to validate recommndations?
 
 
 def build_recommendations_from_scores(

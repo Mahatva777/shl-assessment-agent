@@ -1,71 +1,45 @@
 """
-SHL Assessment Agent – FastAPI entry-point.
+app/main.py
 
-Run locally with:
-    uvicorn app.main:app --reload
+FastAPI application entry point.
+
+Endpoints:
+  GET  /health  -> {"status": "ok"}
+  POST /chat    -> ChatResponse
 """
 
-from __future__ import annotations
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.schemas import ChatRequest, ChatResponse
+from app.agent import agent
 
-# ---------------------------------------------------------------------------
-# Application
-# ---------------------------------------------------------------------------
-
-app = FastAPI(
-    title="SHL Assessment Recommendation Agent",
-    version="0.1.0",
-    description=(
-        "An AI-powered conversational agent that recommends SHL assessments "
-        "based on job descriptions, hiring requirements, and natural-language queries."
-    ),
-)
-
-# CORS – allow all origins during development; tighten for production.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="SHL Assessment Recommender", version="1.0.0")
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-@app.get("/health", tags=["meta"])
-async def health() -> dict[str, str]:
-    """Liveness / readiness probe."""
+@app.get("/health")
+def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/chat", response_model=ChatResponse, tags=["chat"])
-async def chat(request: ChatRequest) -> ChatResponse:
-    """Multi-turn chat endpoint.
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+    return agent(request.messages)
 
-    Accepts the conversation history and returns the agent's reply
-    together with any SHL assessment recommendations.
 
-    This is a **placeholder** – the full agent pipeline (state extraction →
-    retrieval → scoring → LLM reply) will be wired in later.
-    """
-    # TODO: wire in agent.run(request.messages)
-    last_user_msg = next(
-        (m.content for m in reversed(request.messages) if m.role == "user"),
-        "",
-    )
+# ---------------------------------------------------------------------------
+# Global error handler — keeps the service alive on unexpected failures and
+# always returns a schema-compliant JSON body instead of a 500 HTML page.
+# ---------------------------------------------------------------------------
 
-    return ChatResponse(
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    body = ChatResponse(
         reply=(
-            f"Thanks for your query: \"{last_user_msg}\". "
-            "I'm still being set up — full recommendations coming soon!"
+            "I encountered an unexpected error. "
+            "Please try again or rephrase your request."
         ),
         recommendations=[],
         end_of_conversation=False,
     )
+    return JSONResponse(status_code=200, content=body.model_dump())

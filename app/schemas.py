@@ -52,28 +52,42 @@ class ChatRequest(BaseModel):
 # Recommendation
 # ---------------------------------------------------------------------------
 
+# class Recommendation(BaseModel):
+#     """One SHL assessment recommendation returned to the user."""
+
+#     name: str = Field(..., description="Display name of the assessment.")
+#     url: str = Field(..., description="Link to the SHL product page.")
+#     duration_minutes: Optional[int] = Field(
+#         None,
+#         description="Estimated completion time in minutes (null if unknown).",
+#     )
+#     remote_supported: bool = Field(
+#         ...,
+#         description="Whether the assessment can be administered remotely.",
+#     )
+#     adaptive: Optional[bool] = Field(
+#         None,
+#         description="Whether the assessment adapts to the candidate.",
+#     )
+#     description: str = Field(
+#         "",
+#         description="Short description of the assessment.",
+#     )
+
+
+
 class Recommendation(BaseModel):
     """One SHL assessment recommendation returned to the user."""
 
-    product_name: str = Field(..., description="Display name of the assessment.")
+    name: str = Field(..., description="Display name of the assessment.")
     url: str = Field(..., description="Link to the SHL product page.")
-    duration_minutes: Optional[int] = Field(
-        None,
-        description="Estimated completion time in minutes (null if unknown).",
-    )
-    remote_supported: bool = Field(
+    test_type: str = Field(
         ...,
-        description="Whether the assessment can be administered remotely.",
+        description=(
+            "One-letter test type code (e.g. 'K' = Knowledge & Skills, "
+            "'P' = Personality & Behavior, 'A' = Ability & Aptitude, etc.)."
+        ),
     )
-    adaptive: Optional[bool] = Field(
-        None,
-        description="Whether the assessment adapts to the candidate.",
-    )
-    description: str = Field(
-        "",
-        description="Short description of the assessment.",
-    )
-
 
 # ---------------------------------------------------------------------------
 # Chat response
