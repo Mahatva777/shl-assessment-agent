@@ -12,7 +12,8 @@ Responsibilities:
 
 from __future__ import annotations
 
-from app.schemas import ChatMessage, ChatResponse, Recommendation, CatalogItem
+from app.schemas import ChatMessage, ChatResponse, Recommendation
+from app.catalog_loader import CatalogItem
 from app.state_extraction import extract_state_from_messages
 from app.policy import decide_mode, pick_clarification_question, should_end_conversation
 from app.retrieval import semantic_search

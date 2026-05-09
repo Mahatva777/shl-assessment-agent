@@ -20,7 +20,7 @@ class Settings:
         default_factory=lambda: os.getenv("MODEL_NAME", "gemini-2.0-flash"),
     )
     google_api_key: str = field(
-        default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""),
+        default_factory=lambda: os.getenv("GOOGLE_API_KEY", "AIzaSyCVPP9Ql36fIryxxZqvYozD8aTCApkIJLI"),
     )
 
     # ── Catalog / data ─────────────────────────────────────────────────
