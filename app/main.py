@@ -1,24 +1,33 @@
-"""
-app/main.py
-
-FastAPI application entry point.
-
-Endpoints:
-  GET  /health  -> {"status": "ok"}
-  POST /chat    -> ChatResponse
-"""
+# app/main.py
+from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.schemas import ChatRequest, ChatResponse
 from app.agent import agent
+from app.schemas import ChatRequest, ChatResponse
 
-app = FastAPI(title="SHL Assessment Recommender", version="1.0.0")
+app = FastAPI(
+    title="SHL Assessment Recommendation Agent",
+    version="1.0.0",
+    description=(
+        "Conversational agent that recommends SHL Individual Test Solutions "
+        "based on job descriptions and hiring requirements."
+    ),
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
-def health() -> dict:
+def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
@@ -27,18 +36,10 @@ def chat(request: ChatRequest) -> ChatResponse:
     return agent(request.messages)
 
 
-# ---------------------------------------------------------------------------
-# Global error handler — keeps the service alive on unexpected failures and
-# always returns a schema-compliant JSON body instead of a 500 HTML page.
-# ---------------------------------------------------------------------------
-
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     body = ChatResponse(
-        reply=(
-            "I encountered an unexpected error. "
-            "Please try again or rephrase your request."
-        ),
+        reply="I encountered an unexpected error. Please try again.",
         recommendations=[],
         end_of_conversation=False,
     )
