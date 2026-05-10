@@ -17,13 +17,13 @@ from app.guards import (
 from app.llm_client import call_llm
 from app.policy import decide_mode, pick_clarification_question, should_end_conversation
 from app.retrieval import build_embeddings, semantic_search
-from app.schemas import ChatMessage, ChatResponse, Recommendation
+from app.schemas import ChatMessage, ChatResponse
 from app.state_extraction import extract_state_from_messages
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Module-level catalog singleton
+# Module-level catalog singleton (loaded once, never mutated after init)
 # ---------------------------------------------------------------------------
 
 _catalog: Optional[list[CatalogItem]] = None
@@ -57,67 +57,6 @@ def _clarify(reply: str) -> ChatResponse:
 
 def _refuse(reply: str) -> ChatResponse:
     return ChatResponse(reply=reply, recommendations=[], end_of_conversation=False)
-
-
-# ---------------------------------------------------------------------------
-# Battery diversity helper (Task 6)
-# ---------------------------------------------------------------------------
-
-# Maps SHL catalog key → type bucket
-_KEY_BUCKETS: dict[str, str] = {
-    "Ability & Aptitude": "cognitive",
-    "Personality & Behavior": "personality",
-    "Biodata & Situational Judgment": "sjt",
-    "Simulations": "simulation",
-    "Knowledge & Skills": "knowledge",
-}
-
-# Desired max items per bucket in a balanced battery
-_BUCKET_CAP = 3
-
-
-def _diversify_recommendations(
-    recs: list[Recommendation],
-    candidates: list[CatalogItem],
-    top_n: int = 10,
-) -> list[Recommendation]:
-    """Re-order recommendations to ensure complementary type diversity (Task 6).
-
-    Prevents homogeneous batteries (e.g. 8 OPQ variants) by capping each
-    type bucket at _BUCKET_CAP while keeping high-scoring items first.
-    Falls back gracefully when catalog data is sparse.
-    """
-    if len(recs) <= 3:
-        return recs
-
-    # Build a name→item lookup for key access
-    name_map: dict[str, CatalogItem] = {item.name.lower(): item for item in candidates}
-
-    bucket_counts: dict[str, int] = {}
-    diverse: list[Recommendation] = []
-    overflow: list[Recommendation] = []
-
-    for rec in recs:
-        item = name_map.get(rec.name.lower())
-        if item is None:
-            diverse.append(rec)
-            continue
-        # Determine primary bucket for this item
-        bucket = "other"
-        for key in item.keys:
-            if key in _KEY_BUCKETS:
-                bucket = _KEY_BUCKETS[key]
-                break
-        count = bucket_counts.get(bucket, 0)
-        if count < _BUCKET_CAP:
-            bucket_counts[bucket] = count + 1
-            diverse.append(rec)
-        else:
-            overflow.append(rec)
-
-    # Fill remaining slots from overflow if needed
-    result = diverse + overflow
-    return result[:top_n]
 
 
 # ---------------------------------------------------------------------------
@@ -157,20 +96,10 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
     # ── 3. State extraction ──────────────────────────────────────────────
     state = extract_state_from_messages(messages)
 
-    # ── 4. Early retrieval for policy awareness (Task 4) ─────────────────
-    # Run a lightweight retrieval pass so decide_mode can inspect top scores.
-    query = state.build_query_string() or last_user.content
-    early_scored: list[tuple[float, CatalogItem]] = []
-    if catalog and query:
-        try:
-            early_scored = semantic_search(query, state, catalog, top_k=5)
-        except Exception:
-            logger.debug("Early retrieval failed; policy will run without scores.")
+    # ── 4. Policy ────────────────────────────────────────────────────────
+    mode = decide_mode(state, last_user)
 
-    # ── 5. Policy ────────────────────────────────────────────────────────
-    mode = decide_mode(state, last_user, top_candidates=early_scored)
-
-    # ── 6. Mode dispatch ─────────────────────────────────────────────────
+    # ── 5. Mode dispatch ─────────────────────────────────────────────────
 
     if mode == "refuse":
         return _refuse(
@@ -207,12 +136,8 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
         )
 
     # ── recommend / refine ───────────────────────────────────────────────
-    # Reuse early_scored if already done, otherwise do full retrieval
-    if early_scored and mode == "recommend":
-        scored = semantic_search(query, state, catalog, top_k=20)
-    else:
-        scored = semantic_search(query, state, catalog, top_k=20)
-
+    query = state.build_query_string() or last_user.content
+    scored = semantic_search(query, state, catalog, top_k=20)
     candidates = [item for _, item in scored]
 
     if not candidates:
@@ -229,9 +154,6 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
     recs = build_recommendations_from_names(chosen_names, candidates, top_n=10)
     if not recs:
         recs = build_recommendations_from_scores(scored, top_n=5)
-
-    # Apply battery diversity (Task 6)
-    recs = _diversify_recommendations(recs, candidates, top_n=10)
 
     end = should_end_conversation(mode, state)
     return validate_chat_response(

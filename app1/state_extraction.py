@@ -5,6 +5,12 @@ Scans the **full** conversation history (not just the last message) and
 fills a structured :class:`ConversationState` using keyword / regex
 heuristics.  The state drives the policy layer, which decides whether to
 clarify, recommend, refine, compare, or refuse.
+
+Design notes (derived from sample conversations C1-C10):
+    - C1/C3/C9: Clarify seniority or language before recommending.
+    - C4/C8/C9/C10: Refine when user adds/removes constraints.
+    - C3/C5/C6: Compare when user names ≥2 products or asks for differences.
+    - C7: Refuse legal / general hiring-strategy questions.
 """
 
 from __future__ import annotations
@@ -25,46 +31,69 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ConversationState:
-    """Structured snapshot of everything we know from the conversation."""
+    """Structured snapshot of everything we know from the conversation.
+
+    Fields are progressively filled as the agent gathers information
+    across multiple chat turns.  Any field that is still unknown is
+    ``None`` (scalars), ``False`` (booleans), or empty (lists).
+    """
 
     # ── Role / domain ──────────────────────────────────────────────────
     role_title: Optional[str] = None
+    """Free-text job title, e.g. ``"Python Backend Engineer"``."""
+
     domain_keywords: list[str] = field(default_factory=list)
+    """Domain / skill keywords, e.g. ``["python", "backend", "REST"]``."""
 
     # ── Seniority ──────────────────────────────────────────────────────
     seniority_text: Optional[str] = None
+    """Raw seniority phrase, e.g. ``"junior"``, ``"mid-level"``."""
 
     # ── Language ───────────────────────────────────────────────────────
     language_required: Optional[str] = None
+    """Required assessment language, e.g. ``"English"``, ``"Spanish"``."""
 
     # ── Test-type preference booleans ──────────────────────────────────
     wants_personality: bool = False
+    """User explicitly wants personality / behavior assessments."""
+
     wants_cognitive: bool = False
+    """User explicitly wants cognitive / aptitude / reasoning tests."""
+
     wants_sjt: bool = False
+    """User explicitly wants Situational Judgment Tests (SJT)."""
+
     wants_simulation: bool = False
+    """User explicitly wants simulation-based assessments."""
 
     # ── Remote / proctoring ────────────────────────────────────────────
     wants_remote: bool = False
+    """User explicitly wants remote-proctored assessments."""
 
     # ── Duration ───────────────────────────────────────────────────────
     duration_budget: Optional[int] = None
+    """Maximum acceptable assessment duration in minutes."""
 
     # ── Comparison ─────────────────────────────────────────────────────
     compare_targets: list[str] = field(default_factory=list)
+    """Product names the user wants to compare (≥2 triggers compare mode)."""
 
     # ── Conversation-level flags ───────────────────────────────────────
     user_confirmed_final: bool = False
-    off_topic: bool = False
+    """User explicitly said the recommendations are good / enough."""
 
-    # ── Use-case (Task 2) ──────────────────────────────────────────────
-    use_case: Optional[str] = None
-    """Detected hiring intent: 'screening', 'finalist', 'benchmarking',
-    'leadership', 'development', 'graduate_hiring', 'promotion', or None."""
+    off_topic: bool = False
+    """User is asking something outside the SHL assessment domain."""
 
     # ── Derived helpers ────────────────────────────────────────────────
 
     @property
     def desired_keys(self) -> list[str]:
+        """Map the boolean test-type flags to SHL catalog key strings.
+
+        This keeps backward-compatibility with ``score_candidate()``
+        while the user-facing interface uses simple booleans.
+        """
         keys: list[str] = []
         if self.wants_personality:
             keys.append("Personality & Behavior")
@@ -77,6 +106,9 @@ class ConversationState:
         return keys
 
     def build_query_string(self) -> str:
+        """Combine known fields into a single lowercased string for
+        embedding-based search.
+        """
         parts: list[str] = []
         if self.role_title:
             parts.append(self.role_title)
@@ -88,17 +120,22 @@ class ConversationState:
             parts.append(self.language_required)
         if self.desired_keys:
             parts.append(" ".join(self.desired_keys))
-        if self.use_case:
-            parts.append(self.use_case.replace("_", " "))
         return " ".join(parts).lower()
 
     def has_enough_info(self) -> bool:
-        """Return True when enough is known to produce useful recommendations.
+        """Return ``True`` when we have enough to produce useful recs.
 
-        Relaxed vs original: a clear use-case or seniority alone can be
-        sufficient context when paired with even one domain keyword.
+        Modeled after the sample conversations C1-C10: the agent should
+        recommend only when it knows at least:
+            1. The role family OR ≥2 domain keywords (what job is this for?)
+            2. At least one of: seniority, a test-type preference, or a
+               duration budget (what *kind* of assessment is needed?)
+
+        This prevents noisy early recommendations while keeping the bar
+        low enough that specific queries ("I need a Python test for
+        graduates under 30 min") pass on the first turn.
         """
-        has_role = bool(self.role_title) or len(self.domain_keywords) >= 3
+        has_role = bool(self.role_title) or len(self.domain_keywords) >= 2
         has_constraint = bool(
             self.seniority_text
             or self.wants_personality
@@ -107,50 +144,15 @@ class ConversationState:
             or self.wants_simulation
             or self.duration_budget is not None
             or self.language_required
-            or self.use_case
         )
-        # Single-keyword messages that carry strong seniority signal are
-        # sufficient on their own (e.g. "CXO leadership benchmarking").
-        strong_seniority = self.seniority_text and any(
-            t in (self.seniority_text or "")
-            for t in ("executive", "director", "cxo", "ceo", "cfo", "cto", "manager")
-        )
-        if strong_seniority and len(self.domain_keywords) >= 4:
-            return True
         return has_role and has_constraint
 
-    def recommendation_confidence(self) -> float:
-        """Return a 0-1 score representing how confident we are to recommend.
-
-        Used by the policy layer to avoid unnecessary clarification turns.
-        """
-        score = 0.0
-        if self.role_title:
-            score += 0.20
-        elif len(self.domain_keywords) >= 3:
-            score += 0.15
-        elif len(self.domain_keywords) == 2:
-            score += 0.10
-        if self.seniority_text:
-            score += 0.10
-        if self.use_case:
-            score += 0.10
-        test_prefs = sum([
-            self.wants_personality, self.wants_cognitive,
-            self.wants_sjt, self.wants_simulation,
-        ])
-        score += min(test_prefs * 0.08, 0.20)
-        if self.duration_budget is not None:
-            score += 0.05
-        if self.language_required:
-            score += 0.05
-        return min(score, 1.0)
-
 
 # ───────────────────────────────────────────────────────────────────────────
-# Regex patterns
+# Regex patterns for keyword extraction
 # ───────────────────────────────────────────────────────────────────────────
 
+# Seniority — matches phrases like "graduate", "entry-level", "CXO", etc.
 _SENIORITY_RE = re.compile(
     r"\b(junior|senior|mid[- ]?level|entry[- ]?level|graduate|intern|trainee"
     r"|manager|director|executive|cxo|ceo|cfo|cto|supervisor|lead"
@@ -158,22 +160,26 @@ _SENIORITY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Duration — "30 min", "under 20 minutes", etc.
 _DURATION_EXPLICIT_RE = re.compile(
     r"\b(\d{1,3})\s*(?:min(?:ute)?s?|mins?)\b",
     re.IGNORECASE,
 )
 
+# Duration — indirect phrases that imply a short test
 _QUICK_SCREEN_RE = re.compile(
     r"\b(quickly?\s+screen|short\s+test|brief\s+assessment|fast\s+screen"
     r"|quick\s+assessment|short\s+assessment|rapid\s+screen)\b",
     re.IGNORECASE,
 )
 
+# Remote
 _REMOTE_RE = re.compile(
     r"\b(remote|online|virtual|proctored\s+remotely|unproctored)\b",
     re.IGNORECASE,
 )
 
+# Language — common assessment languages
 _LANGUAGE_RE = re.compile(
     r"\b(?:in\s+|spoken\s+)?"
     r"(english(?:\s*\(?\s*(?:us|usa|uk|international)\s*\)?)?|spanish|french"
@@ -181,12 +187,14 @@ _LANGUAGE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Personality / behavior
 _PERSONALITY_RE = re.compile(
     r"\b(personality|behavio(?:u?r)|opq|occupational\s+personality"
     r"|motivation\s+questionnaire|mq\b|big\s*five|trait|temperament)\b",
     re.IGNORECASE,
 )
 
+# Cognitive / aptitude / reasoning
 _COGNITIVE_RE = re.compile(
     r"\b(cognitive|aptitude|reasoning|numerical|verbal|inductive"
     r"|deductive|abstract|ability\s+test|verify|g\+|general\s+ability"
@@ -194,17 +202,20 @@ _COGNITIVE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Situational Judgment Tests
 _SJT_RE = re.compile(
     r"\b(sjt|situational\s+judg(?:e?ment)|biodata|judgment\s+test)\b",
     re.IGNORECASE,
 )
 
+# Simulations
 _SIMULATION_RE = re.compile(
     r"\b(simulation|role[- ]?play|inbox|in[- ]?tray|assessment\s+exercise"
     r"|case\s+study|group\s+exercise|presentation\s+exercise)\b",
     re.IGNORECASE,
 )
 
+# Off-topic / refusal patterns — legal, compliance, general hiring strategy
 _OFF_TOPIC_RE = re.compile(
     r"\b(legal\s+(?:require|complian|advi|risk|liability)|labor\s+law"
     r"|employment\s+law|discrimination\s+law|gdpr|hipaa|eeoc|ada\s+complian"
@@ -215,6 +226,7 @@ _OFF_TOPIC_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Prompt injection / adversarial patterns
 _INJECTION_RE = re.compile(
     r"(ignore\s+(?:all\s+)?(?:prior|previous|above)\s+(?:instruction|prompt|rule)"
     r"|forget\s+(?:your|all)\s+(?:instruction|rule|prompt)"
@@ -224,6 +236,7 @@ _INJECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Non-SHL assessment mentions
 _NON_SHL_RE = re.compile(
     r"\b(disc\s+assessment|myers[- ]?briggs|mbti|gallup\s+strengths"
     r"|strengthsfinder|hogan\s+assessment|caliper|predictive\s+index"
@@ -231,12 +244,14 @@ _NON_SHL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Compare / difference request
 _COMPARE_RE = re.compile(
     r"\b(differ(?:ence|ent|s)?(?:\s+between)?|compar(?:e|ing|ison)"
     r"|versus|vs\.?|how\s+(?:does|do|is|are)\s+\S+\s+(?:differ|compare))\b",
     re.IGNORECASE,
 )
 
+# Refinement cues — user wants to adjust, not start over
 _REFINE_RE = re.compile(
     r"\b(actually|also\s+add|add\s+(?:personality|cognitive|sjt|simulation)"
     r"|remove|drop|instead|replace|swap|switch|exclude|don'?t\s+include"
@@ -246,6 +261,7 @@ _REFINE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Confirmation that user is satisfied
 _CONFIRMED_RE = re.compile(
     r"\b((?:that(?:'s|\s+is)\s+)?(?:perfect|great|good|enough|fine|excellent)"
     r"|thanks?,?\s+(?:that|this)\s+(?:is\s+)?(?:helpful|what\s+i\s+needed)"
@@ -255,72 +271,7 @@ _CONFIRMED_RE = re.compile(
     re.IGNORECASE,
 )
 
-# ── Use-case patterns (Task 2) ─────────────────────────────────────────────
-_USE_CASE_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("leadership", re.compile(
-        r"\b(leadership\s+(?:assessment|bench|develop|hire)|"
-        r"leader\s+(?:select|identify|develop)|"
-        r"executive\s+(?:assess|hire|select|bench|develop))\b",
-        re.IGNORECASE,
-    )),
-    ("benchmarking", re.compile(
-        r"\b(bench(?:mark(?:ing)?)?|norm(?:ing)?|calibrat|"
-        r"compare\s+against\s+(?:norms?|population)|"
-        r"leadership\s+norm|performance\s+standard)\b",
-        re.IGNORECASE,
-    )),
-    ("finalist", re.compile(
-        r"\b(finalist|final\s+(?:round|stage|select)|"
-        r"shortlist(?:ed)?|last\s+(?:round|stage)|"
-        r"in[- ]depth\s+assessment|deep[- ]dive\s+assess)\b",
-        re.IGNORECASE,
-    )),
-    ("graduate_hiring", re.compile(
-        r"\b(graduate\s+(?:hire|hiring|recruit|program|scheme|intake)|"
-        r"campus\s+recruit|fresh\s+grad|new\s+grad|"
-        r"high[- ]volume\s+(?:grad|recruit|screen))\b",
-        re.IGNORECASE,
-    )),
-    ("screening", re.compile(
-        r"\b(screen(?:ing)?|filter(?:ing)?|initial\s+(?:assess|screen|filter)|"
-        r"high[- ]volume|mass\s+recruit|early[- ]stage|"
-        r"pre[- ]?screen|first[- ]?stage)\b",
-        re.IGNORECASE,
-    )),
-    ("development", re.compile(
-        r"\b(develop(?:ment|ing)?|coaching|learning\s+(?:and|&)\s+development|"
-        r"l[&and]+d|talent\s+develop|upskill|succession|growth\s+plan)\b",
-        re.IGNORECASE,
-    )),
-    ("promotion", re.compile(
-        r"\b(promot(?:ion|ing|ed)|internal\s+(?:mobil|move|hire|select)|"
-        r"succession\s+plan|high[- ]potential|hipo)\b",
-        re.IGNORECASE,
-    )),
-]
-
-# ── Role title extraction (Task 3) ─────────────────────────────────────────
-# Matches compact role phrases: "Senior Software Engineer", "Head of Sales", etc.
-_ROLE_PHRASE_RE = re.compile(
-    r"\b(?:(?:junior|senior|lead|head\s+of|vp\s+of|director\s+of|"
-    r"chief\s+\w+\s+officer|entry[- ]level|mid[- ]level)\s+)?"
-    r"(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}"         # Title Case phrases
-    r"|[a-z]+(?:\s+[a-z]+){0,3})\s*"
-    r"(?:engineer|developer|analyst|manager|specialist|consultant|"
-    r"representative|associate|officer|coordinator|director|executive|"
-    r"architect|designer|scientist|lead|recruiter|advisor|assistant)\b",
-    re.IGNORECASE,
-)
-
-# Heuristic: a message is a role query if it's short and has role signal
-_ROLE_QUERY_SIGNAL_RE = re.compile(
-    r"\b(role|job|position|hiring|recruit|assess(?:ing)?|"
-    r"engineer|developer|analyst|manager|sales|support|"
-    r"customer\s+service|finance|marketing|operations|"
-    r"leadership|executive|graduate|intern|trainee)\b",
-    re.IGNORECASE,
-)
-
+# Stopwords for domain-keyword extraction
 _STOPWORDS: set[str] = {
     "the", "and", "for", "with", "that", "this", "are", "was", "were",
     "can", "you", "need", "want", "looking", "find", "test", "tests",
@@ -345,9 +296,42 @@ _STOPWORDS: set[str] = {
 def extract_state_from_messages(
     messages: list[ChatMessage],
 ) -> ConversationState:
-    """Extract structured hiring constraints from all user messages."""
+    """Extract structured hiring constraints from **all** user messages.
+
+    This scans every user turn in the conversation (not just the last
+    message) and applies keyword / regex heuristics to fill each field
+    of :class:`ConversationState`.
+
+    Heuristics
+    ----------
+    - **Seniority**: "graduate", "junior", "entry-level", "mid-level",
+      "senior", "manager", "director", "CXO", etc.
+    - **Duration**: explicit numbers like "30 min" or indirect phrases
+      like "quickly screen" → defaults to 20 min budget.
+    - **Language**: "English", "English (US)", "Spanish", etc.
+    - **Test types**: each category has its own regex:
+        - personality → "personality", "OPQ", "behavior", "trait"
+        - cognitive → "aptitude", "reasoning", "Verify", "numerical"
+        - SJT → "situational judgment", "SJT", "biodata"
+        - simulation → "simulation", "role-play", "inbox", "in-tray"
+    - **Remote**: "remote", "online", "virtual"
+    - **Off-topic**: legal questions, hiring strategy, prompt injection,
+      non-SHL assessments
+    - **Compare**: "difference between", "compare", "vs"
+    - **Confirmed**: "that's perfect", "looks good", "no more changes"
+
+    Parameters
+    ----------
+    messages:
+        Full conversation history (both user and assistant turns).
+
+    Returns
+    -------
+    ConversationState
+    """
     state = ConversationState()
 
+    # Collect all user text for cumulative scanning
     user_texts: list[str] = [
         m.content for m in messages if m.role.value == "user"
     ]
@@ -355,6 +339,8 @@ def extract_state_from_messages(
     last_user_text: str = user_texts[-1] if user_texts else ""
 
     # ── Off-topic / refusal detection ─────────────────────────────────
+    # (check last message primarily — earlier context may have been
+    #  on-topic before the user went off-track)
     if _OFF_TOPIC_RE.search(last_user_text):
         state.off_topic = True
     if _INJECTION_RE.search(last_user_text):
@@ -372,12 +358,15 @@ def extract_state_from_messages(
     if dur_match:
         state.duration_budget = int(dur_match.group(1))
     elif _QUICK_SCREEN_RE.search(all_user_text):
+        # "quickly screen" implies a short test — default to 20 min
         state.duration_budget = 20
 
     # ── Language ──────────────────────────────────────────────────────
     lang_match = _LANGUAGE_RE.search(all_user_text)
     if lang_match:
-        state.language_required = _normalize_language(lang_match.group(1).strip())
+        raw_lang: str = lang_match.group(1).strip()
+        # Normalize "english (us)" → "English (USA)" etc.
+        state.language_required = _normalize_language(raw_lang)
 
     # ── Remote ────────────────────────────────────────────────────────
     if _REMOTE_RE.search(all_user_text):
@@ -392,11 +381,10 @@ def extract_state_from_messages(
         state.wants_sjt = True
     if _SIMULATION_RE.search(all_user_text):
         state.wants_simulation = True
+
+    # "spoken English" often implies simulation preference (C9 pattern)
     if re.search(r"\bspoken\s+english\b", all_user_text, re.IGNORECASE):
         state.wants_simulation = True
-
-    # ── Use-case detection (Task 2) ───────────────────────────────────
-    state.use_case = _detect_use_case(all_user_text)
 
     # ── Compare targets ───────────────────────────────────────────────
     if _COMPARE_RE.search(last_user_text):
@@ -412,10 +400,19 @@ def extract_state_from_messages(
         w for w in dict.fromkeys(words) if w not in _STOPWORDS
     ][:15]
 
-    # ── Role title (Task 3 — improved extraction) ─────────────────────
-    state.role_title = _extract_role_title(user_texts)
+    # ── Role title ────────────────────────────────────────────────────
+    # Use the first user message if it's short enough to be a role query
+    if user_texts:
+        first_msg = user_texts[0].strip()
+        # If the first message is compact (≤25 words) and looks like a
+        # role query, treat it as a role title / job description snippet
+        if len(first_msg.split()) <= 25:
+            state.role_title = first_msg
 
     # ── Handle refinement negations ───────────────────────────────────
+    # If user says "remove personality" / "no OPQ" / "drop personality",
+    # toggle the flag back off.  This must run *after* the cumulative
+    # scan so that "add personality … actually remove personality" works.
     _apply_negations(state, last_user_text)
 
     return state
@@ -425,47 +422,8 @@ def extract_state_from_messages(
 # Helpers
 # ───────────────────────────────────────────────────────────────────────────
 
-def _detect_use_case(text: str) -> Optional[str]:
-    """Return the best-matching use-case label, or None."""
-    for label, pattern in _USE_CASE_PATTERNS:
-        if pattern.search(text):
-            return label
-    return None
-
-
-def _extract_role_title(user_texts: list[str]) -> Optional[str]:
-    """Extract a compact role phrase from user messages (Task 3).
-
-    Strategy:
-    1. Try to match a known role-phrase pattern in any message ≤15 words.
-    2. Fall back to the first short message (≤12 words) that carries role signal.
-    3. Use first message ≤25 words as a last resort (original behaviour).
-    """
-    for msg in user_texts:
-        stripped = msg.strip()
-        word_count = len(stripped.split())
-        if word_count > 20:
-            continue
-        match = _ROLE_PHRASE_RE.search(stripped)
-        if match:
-            return match.group(0).strip()
-
-    for msg in user_texts:
-        stripped = msg.strip()
-        word_count = len(stripped.split())
-        if word_count <= 12 and _ROLE_QUERY_SIGNAL_RE.search(stripped):
-            return stripped
-
-    # Last resort: first short-enough message
-    if user_texts:
-        first = user_texts[0].strip()
-        if len(first.split()) <= 25:
-            return first
-
-    return None
-
-
 def _normalize_language(raw: str) -> str:
+    """Normalize a language match to a consistent form."""
     low = raw.lower().strip()
     if low.startswith("english"):
         if "us" in low:
@@ -479,9 +437,18 @@ def _normalize_language(raw: str) -> str:
 
 
 def _extract_product_names(text: str) -> list[str]:
+    """Extract candidate SHL product names from a compare / vs request.
+
+    Uses heuristics: quoted strings, or capitalized multi-word phrases
+    that look like product names (e.g. "OPQ32r", "Verify G+").
+    """
     names: list[str] = []
+
+    # Quoted names first: "OPQ32r" or 'Verify G+'
     quoted = re.findall(r'["\']([^"\']{3,})["\']', text)
     names.extend(quoted)
+
+    # Known SHL product prefixes
     known = re.findall(
         r"\b(OPQ\s*\S*(?:\s+\S+){0,3}|Verify\s+\S+(?:\s+\S+){0,2}"
         r"|MQ\s+\S+(?:\s+\S+){0,2}|SJT\s*\S*"
@@ -490,6 +457,8 @@ def _extract_product_names(text: str) -> list[str]:
         re.IGNORECASE,
     )
     names.extend(known)
+
+    # Deduplicate while preserving order
     seen: set[str] = set()
     unique: list[str] = []
     for n in names:
@@ -507,9 +476,15 @@ _NEGATION_RE = re.compile(
 
 
 def _apply_negations(state: ConversationState, text: str) -> None:
+    """Handle "remove X" / "no X" in the latest message to toggle flags off.
+
+    This preserves the cumulative-scan approach while letting the user
+    undo a previously-set preference in a refinement turn.
+    """
     low = text.lower()
     if not _NEGATION_RE.search(low):
         return
+
     if re.search(r"\b(?:remove|drop|no|without|skip|exclude|don'?t\s+include)\s+(?:.*?)(?:personality|opq|behavio)", low):
         state.wants_personality = False
     if re.search(r"\b(?:remove|drop|no|without|skip|exclude|don'?t\s+include)\s+(?:.*?)(?:cognitive|aptitude|reasoning|verify)", low):
@@ -520,11 +495,24 @@ def _apply_negations(state: ConversationState, text: str) -> None:
         state.wants_simulation = False
 
 
+# ───────────────────────────────────────────────────────────────────────────
+# Merge utility (for refinement: "update the state, don't start over")
+# ───────────────────────────────────────────────────────────────────────────
+
 def merge_state(
     old: ConversationState,
     new: ConversationState,
 ) -> ConversationState:
-    """Merge *new* into *old*, preserving prior constraints."""
+    """Merge *new* into *old*, preserving prior constraints.
+
+    - Scalars: prefer ``new`` when non-None, else keep ``old``.
+    - Booleans: ``True`` in *new* overrides ``False`` in *old* (additive).
+      Explicit negations should have already set *new* to ``False``
+      via :func:`_apply_negations`.
+    - Lists: non-empty ``new`` replaces ``old``.
+
+    This implements the refinement rule: "update, don't start over."
+    """
     return ConversationState(
         role_title=new.role_title or old.role_title,
         domain_keywords=new.domain_keywords or old.domain_keywords,
@@ -536,11 +524,11 @@ def merge_state(
         wants_simulation=new.wants_simulation or old.wants_simulation,
         wants_remote=new.wants_remote or old.wants_remote,
         duration_budget=(
-            new.duration_budget if new.duration_budget is not None
+            new.duration_budget
+            if new.duration_budget is not None
             else old.duration_budget
         ),
         compare_targets=new.compare_targets or old.compare_targets,
         user_confirmed_final=new.user_confirmed_final,
         off_topic=new.off_topic,
-        use_case=new.use_case or old.use_case,
     )
