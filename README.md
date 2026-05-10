@@ -1,60 +1,167 @@
-# SHL Assessment Recommendation Agent
+# SHL Conversational Assessment Recommender
 
-An AI-powered conversational agent that recommends SHL assessments based on
-job descriptions, hiring requirements, and natural-language queries.
+A conversational recommendation system for grounded SHL assessment selection using semantic retrieval and LLM-guided consultative reasoning.
+
+The system is designed to behave like an SHL consultant:
+
+* consultative instead of robotic
+* grounded instead of hallucinating
+* concise instead of overly verbose
+* flexible without brittle hardcoded flows
 
 ---
 
-## Quick start
+# Architecture
 
-### 1. Clone & install
+The system intentionally combines:
 
-```bash
-git clone <repo-url> && cd shl-assessment-agent
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Configure
-
-```bash
-cp .env.example .env
-# Edit .env and set GOOGLE_API_KEY (required for the LLM)
-```
-
-### 3. Run the dev server
-
-```bash
-uvicorn app.main:app --reload
-```
-
-The API will be available at **http://127.0.0.1:8000**.
-
-- Interactive docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-- Health check: `GET /health`
-- Chat endpoint: `POST /chat`
-
-### 4. Example request
-
-```bash
-curl -X POST http://127.0.0.1:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "user", "content": "I need a test for a junior Python developer"}
-    ]
-  }'
+```text
+Lightweight deterministic infrastructure
++
+LLM-driven conversational reasoning
 ```
 
 ---
 
-## Running tests
+## High-Level Flow
 
-```bash
-python -m pytest app/tests/ -v
+```text
+User Messages
+    ↓
+Input Validation
+    ↓
+Lightweight State Extraction
+    ↓
+Deterministic Safety / Compare / Refine Gates
+    ↓
+Semantic Retrieval
+    ↓
+LLM Conversational Reasoning
+    ↓
+Grounding Validation
+    ↓
+Structured API Response
 ```
 
 ---
+
+# Core Design
+
+## Deterministic Infrastructure
+
+Responsible for:
+
+* semantic retrieval
+* catalog grounding
+* recommendation validation
+* safety filtering
+* compare/refine detection
+
+---
+
+## LLM Conversational Layer
+
+Responsible for:
+
+* clarify vs consult vs recommend
+* conversational reasoning
+* clarification quality
+* recommendation timing
+* shortlist explanation
+* conversation completion
+
+---
+
+# Stateless Conversation Model
+
+The backend is fully stateless.
+
+Every request must include the full conversation history.
+
+Example:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hiring senior leadership"
+    },
+    {
+      "role": "assistant",
+      "content": "Is this for screening or executive benchmarking?"
+    },
+    {
+      "role": "user",
+      "content": "Executive benchmarking"
+    }
+  ]
+}
+```
+
+Without full history:
+
+* refinement breaks
+* consultative continuity breaks
+* recommendation staging breaks
+
+---
+
+# Conversation Modes
+
+The LLM must choose exactly one mode:
+
+| Mode      | Purpose                                      |
+| --------- | -------------------------------------------- |
+| clarify   | Ask one high-value question                  |
+| consult   | Directional guidance without final shortlist |
+| recommend | Return grounded recommendations              |
+| refine    | Modify prior recommendations                 |
+| compare   | Compare grounded products                    |
+| refuse    | Reject unsupported/off-topic requests        |
+
+---
+
+# Consultative Recommendation Staging
+
+The system supports:
+
+```text
+clarify
+→ consult
+→ recommend
+→ refine
+```
+
+instead of binary:
+
+```text
+clarify vs recommend
+```
+
+---
+
+# Grounding & Hallucination Prevention
+
+The LLM NEVER directly emits recommendation objects.
+
+Instead:
+
+```text
+LLM chosen_names
+    ↓
+Deterministic validation
+    ↓
+Grounded recommendation objects
+```
+
+If the LLM outputs invalid products:
+
+* recommendations are discarded safely
+* retrieval-ranked fallback recommendations are used
+
+---
+
 
 ## Project structure
 
@@ -82,17 +189,162 @@ shl-assessment-agent/
 └── README.md
 ```
 
+
 ---
 
-## Environment variables
+# Important Code Contracts
 
-| Variable           | Default                       | Description                       |
-|--------------------|-------------------------------|-----------------------------------|
-| `MODEL_NAME`       | `gemini-2.0-flash`            | LLM model identifier              |
-| `GOOGLE_API_KEY`   | *(required)*                  | Google AI API key                  |
-| `CATALOG_PATH`     | `data/shl_product_catalog.json` | Path to the SHL product catalog  |
-| `EMBEDDING_MODEL`  | `models/text-embedding-004`   | Embedding model for retrieval      |
-| `TOP_K`            | `10`                          | Number of candidates to retrieve   |
-| `HOST`             | `0.0.0.0`                     | Server bind address                |
-| `PORT`             | `8000`                        | Server port                        |
-| `DEBUG`            | `false`                       | Enable debug mode                  |
+## LLM Output Contract
+
+The LLM must always return strict JSON:
+
+```json
+{
+  "mode": "clarify|consult|recommend|refine|compare|refuse",
+  "reply": "...",
+  "chosen_names": [...]
+}
+```
+
+---
+
+## Recommendation Grounding
+
+Only validated catalog items can become recommendations.
+
+Example:
+
+```python
+recs = build_recommendations_from_names(
+    chosen_names,
+    candidates,
+    top_n=10,
+)
+```
+
+---
+
+## Forced Deterministic Modes
+
+The policy layer only forces:
+
+* refuse
+* compare
+* refine
+
+Example:
+
+```python
+forced_mode = get_forced_mode(state, last_user)
+```
+
+Otherwise:
+
+```text
+LLM decides conversational behavior
+```
+
+---
+
+# Running the Project
+
+## Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Run FastAPI Server
+
+```bash
+uvicorn app.main:app --reload
+```
+
+---
+
+## Example Request
+
+```bash
+curl -X POST http://127.0.0.1:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hiring graduate software engineers"
+      }
+    ]
+  }'
+```
+
+---
+
+# Example Behavior
+
+## Clarify
+
+User:
+
+```text
+We're assessing senior leadership candidates.
+```
+
+Agent:
+
+```text
+Is this for early-stage leadership screening or executive benchmarking?
+```
+
+---
+
+## Consult
+
+User:
+
+```text
+Hiring a senior Rust engineer for networking infrastructure.
+```
+
+Agent:
+
+```text
+SHL doesn't currently include a Rust-specific assessment, but live coding and systems-oriented technical evaluation would likely be the closest fit.
+```
+
+---
+
+## Recommend
+
+User:
+
+```text
+Need a cognitive test under 30 minutes for graduate hiring.
+```
+
+Agent:
+
+```text
+<grounded shortlist>
+```
+
+---
+
+# Engineering Principles
+
+The architecture intentionally prioritizes:
+
+* grounded recommendations
+* consultative behavior
+* lightweight infrastructure
+* minimal hardcoding
+* production simplicity
+* maintainability
+
+while avoiding:
+
+* giant regex trees
+* brittle routing logic
+* hallucinated recommendations
+* overengineered agent frameworks
