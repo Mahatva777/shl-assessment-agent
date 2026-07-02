@@ -388,7 +388,7 @@ def _extract_product_names(text: str) -> list[str]:
     seen: set[str] = set()
     unique: list[str] = []
     for n in names:
-        nc = n.strip()
+        nc = n.strip(".,?!\"'")
         if nc.lower() not in seen and len(nc) > 2:
             seen.add(nc.lower())
             unique.append(nc)

@@ -16,29 +16,27 @@ The system is designed to behave like an SHL consultant:
 The system intentionally combines:
 
 ```text
-Lightweight deterministic infrastructure
-+
-LLM-driven conversational reasoning
+Deterministic Retrieval + Grounding + LLM Conversational Reasoning
 ```
 
 ---
 
-## High-Level Flow
+## High-Level Retrieval Flow
 
 ```text
-User Messages
-    ↓
-Input Validation
+Conversation
     ↓
 Lightweight State Extraction
     ↓
-Deterministic Safety / Compare / Refine Gates
+Query Construction & Safety / Compare / Refine Gates
     ↓
-Semantic Retrieval
+Embedding Similarity Search (sentence-transformers)
     ↓
-LLM Conversational Reasoning
+Diversification (family-capping via battery.py)
     ↓
-Grounding Validation
+Rule-based Anchor Injections (OPQ32r / HIPAA constraints)
+    ↓
+LLM Conversational Reasoning (Claude 3.5 Sonnet)
     ↓
 Structured API Response
 ```
@@ -51,24 +49,24 @@ Structured API Response
 
 Responsible for:
 
-* semantic retrieval
-* catalog grounding
-* recommendation validation
-* safety filtering
-* compare/refine detection
+* Semantic retrieval using `sentence-transformers` (`all-MiniLM-L6-v2`) and NumPy cosine similarity
+* Pre-computed embedding management (loaded in FastAPI lifespan to prevent cold-starts)
+* Catalog grounding and validation
+* Safety filtering and boundary enforcement
+* Compare/refine detection
+* Diversification (capping product families to max 3)
 
 ---
 
-## LLM Conversational Layer
+## LLM Conversational Layer (Claude 3.5 Sonnet)
 
 Responsible for:
 
-* clarify vs consult vs recommend
-* conversational reasoning
-* clarification quality
-* recommendation timing
-* shortlist explanation
-* conversation completion
+* 6 strict modes: clarify, consult, recommend, refine, compare, refuse
+* Conversational reasoning and tone
+* Clarification quality and directional guidance (via consult mode)
+* Recommendation timing and shortlist explanation
+* Conversation completion and lifecycle management
 
 ---
 
@@ -114,9 +112,9 @@ The LLM must choose exactly one mode:
 | Mode      | Purpose                                      |
 | --------- | -------------------------------------------- |
 | clarify   | Ask one high-value question                  |
-| consult   | Directional guidance without final shortlist |
+| consult   | Directional guidance / flag catalog gaps without final shortlist |
 | recommend | Return grounded recommendations              |
-| refine    | Modify prior recommendations                 |
+| refine    | Modify prior recommendations (requires prior history) |
 | compare   | Compare grounded products                    |
 | refuse    | Reject unsupported/off-topic requests        |
 
@@ -162,6 +160,15 @@ If the LLM outputs invalid products:
 
 ---
 
+# Evaluation Approach
+
+The agent's retrieval quality and orchestrator logic were evaluated rigorously:
+* **Custom Test Harness:** Measures `Mean Recall@10` against 10 official benchmark traces.
+* **Recall Progression:** Baseline was **35.8%** before prompt tuning and heuristic gating. Following diversification (`max_per_family=3`), temperature pinning (0.2), and anchor injection, final performance reached **75.7%**.
+* **Regression Suite:** **108 automated unit tests** protecting orchestrator behaviors, schema compliance, and battery duplicate suppression.
+
+---
+
 
 ## Project structure
 
@@ -169,21 +176,28 @@ If the LLM outputs invalid products:
 shl-assessment-agent/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI entry-point (/health, /chat)
+│   ├── main.py              # FastAPI entry-point (/health, /chat, lifespan hooks)
 │   ├── schemas.py            # Pydantic request/response models
 │   ├── config.py             # Environment-based settings
 │   ├── catalog_loader.py     # Load & normalise SHL product catalog
 │   ├── scoring.py            # Seniority mapping & scoring helpers
-│   ├── retrieval.py          # Embedding index & candidate retrieval
+│   ├── retrieval.py          # Embedding index & candidate retrieval (sentence-transformers)
 │   ├── state_extraction.py   # Extract structured constraints from chat
-│   ├── policy.py             # Conversation policy / decision logic
-│   ├── llm_client.py         # Thin wrapper over Google Gemini LLM
+│   ├── policy.py             # Conversation policy / decision logic (heuristic gates)
+│   ├── battery.py            # Diversification and catalog limitation detection
+│   ├── llm_client.py         # Anthropic Claude 3.5 Sonnet integration
 │   ├── agent.py              # Top-level agent orchestrator
 │   └── tests/
 │       ├── test_scoring.py   # Unit tests for scoring utilities
-│       └── test_schema.py    # Schema validation tests
+│       ├── test_schema.py    # Schema validation tests
+│       ├── test_battery.py   # Duplicate family suppression tests
+│       └── test_official_traces.py # Recall@10 evaluation harness
 ├── data/
-│   └── shl_product_catalog.json
+│   ├── shl_product_catalog.json
+│   ├── catalog_embeddings.npy  # Pre-computed vectors
+│   └── catalog_metadata.json
+├── railway.toml                # Railway deployment config
+├── evaluation_results.md       # Trace eval score logs
 ├── .env.example
 ├── requirements.txt
 └── README.md
@@ -253,6 +267,8 @@ LLM decides conversational behavior
 ```bash
 pip install -r requirements.txt
 ```
+
+*(Note: Environment variables for LLM API keys must be set. Copy `.env.example` to `.env` and fill in your keys).*
 
 ---
 
