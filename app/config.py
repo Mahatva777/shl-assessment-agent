@@ -10,6 +10,9 @@ class Settings:
     anthropic_api_key: str = field(
         default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""),
     )
+    google_api_key: str = field(
+        default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""),
+    )
     model_name: str = field(
         default_factory=lambda: os.getenv("MODEL_NAME", "claude-sonnet-4-6"),
     )
