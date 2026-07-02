@@ -80,12 +80,13 @@ def map_seniority_to_job_levels(seniority: str) -> list[str]:
     return [_GENERAL_POPULATION]
 
 
-_W_SEMANTIC: float = 0.60
+_W_SEMANTIC: float = 0.58
 _W_JOB_LEVEL: float = 0.10
-_W_DURATION: float = 0.08
-_W_REMOTE: float = 0.07
-_W_LANGUAGE: float = 0.08
+_W_DURATION: float = 0.07
+_W_REMOTE: float = 0.06
+_W_LANGUAGE: float = 0.07
 _W_KEYS: float = 0.07
+_W_NEW_VARIANT: float = 0.05  # boost for (New) / Interactive variants
 
 
 def score_candidate(
@@ -138,6 +139,15 @@ def score_candidate(
         elif not item_keys:
             key_score = 0.3
 
+    # Boost modern / next-generation variants so they rank above legacy
+    # equivalents that have similar semantic embeddings.
+    # "(New)" items are the current catalog generation; "Interactive" products
+    # are the computerised-adaptive successors of the paper-based Verify suite.
+    new_score: float = 0.0
+    name_lower: str = item.name.lower()
+    if "(new)" in name_lower or "interactive" in name_lower or "365" in name_lower:
+        new_score = 1.0
+
     score: float = (
         _W_SEMANTIC * sem
         + _W_JOB_LEVEL * jl_score
@@ -145,5 +155,6 @@ def score_candidate(
         + _W_REMOTE * rem_score
         + _W_LANGUAGE * lang_score
         + _W_KEYS * key_score
+        + _W_NEW_VARIANT * new_score
     )
     return round(score, 6)

@@ -31,6 +31,8 @@ class ConversationState:
     off_topic: bool = False
     hiring_stage: Optional[str] = None
     deployment_goal: Optional[str] = None
+    # Bug 4b: names of items recommended in prior assistant turns
+    previously_recommended: list[str] = field(default_factory=list)
 
     @property
     def desired_keys(self) -> list[str]:
@@ -122,10 +124,15 @@ _SIMULATION_RE = re.compile(
 )
 _REMOTE_RE = re.compile(r"\b(remote|online|virtual|proctored\s+remotely|unproctored)\b", re.IGNORECASE)
 _OFF_TOPIC_RE = re.compile(
-    r"\b(legal\s+(?:require|complian|advi|risk|liability)|labor\s+law"
-    r"|employment\s+law|discrimination\s+law|gdpr|hipaa|eeoc|ada\s+complian"
+    r"\b("
+    r"legal\s+(?:require|complian|advi|risk|liability)"
+    r"|labor\s+law|employment\s+law|discrimination\s+law"
+    r"|(?:hipaa|gdpr|eeoc|ada)\s+(?:law|regulat|legal|obligat|require|liabilit)"
+    r"|(?:legally|law)\s+(?:required?|mandated?|obligated?).*(?:hipaa|gdpr|eeoc|ada)"
+    r"|how\s+(?:to|should\s+(?:i|we))\s+(?:hire|recruit|interview|fire|terminate)"
     r"|hiring\s+(?:strategy|best\s+practice|tip|guide)"
-    r"|salary\s+negotiat|compensation\s+structure|offer\s+letter)\b",
+    r"|salary\s+negotiat|compensation\s+structure|offer\s+letter"
+    r")",
     re.IGNORECASE,
 )
 _INJECTION_RE = re.compile(
@@ -232,8 +239,17 @@ def extract_state_from_messages(messages: list[ChatMessage]) -> ConversationStat
     if m:
         state.deployment_goal = _norm_goal(m.group(1).lower())
 
-    if _COMPARE_RE.search(last_text):
-        state.compare_targets = _extract_product_names(last_text)
+    # Bug 3: accumulate compare_targets across ALL user turns, not just the last.
+    if _COMPARE_RE.search(all_text):
+        seen_targets: set[str] = set()
+        merged_targets: list[str] = []
+        for ut in user_texts:
+            if _COMPARE_RE.search(ut):
+                for name in _extract_product_names(ut):
+                    if name.lower() not in seen_targets:
+                        seen_targets.add(name.lower())
+                        merged_targets.append(name)
+        state.compare_targets = merged_targets
 
     if _CONFIRMED_RE.search(last_text):
         state.user_confirmed_final = True
@@ -241,10 +257,30 @@ def extract_state_from_messages(messages: list[ChatMessage]) -> ConversationStat
     words = re.findall(r"[a-zA-Z+#.]{2,}", all_text.lower())
     state.domain_keywords = [w for w in dict.fromkeys(words) if w not in _STOPWORDS][:15]
 
-    if user_texts:
-        first = user_texts[0].strip()
-        if len(first.split()) <= 30:
-            state.role_title = first
+    # Bug 5: pick the most specific role_title across all user turns.
+    # "Most specific" = most domain/seniority keyword hits, <= 40 words.
+    # Ties resolved by preferring later turns (more recent context wins).
+    best_title: Optional[str] = None
+    best_score: int = -1
+    for ut in user_texts:
+        stripped = ut.strip()
+        if not stripped or len(stripped.split()) > 40:
+            continue
+        score = 0
+        if _SENIORITY_RE.search(stripped):
+            score += 2
+        ut_lower = stripped.lower()
+        for kw in state.domain_keywords:
+            if kw in ut_lower:
+                score += 1
+        if score >= best_score:
+            best_score = score
+            best_title = stripped
+    state.role_title = best_title
+
+    # Bug 4b: scan prior assistant turns for catalog item names so the LLM
+    # has explicit grounding about what was previously recommended.
+    state.previously_recommended = _extract_previously_recommended(messages)
 
     _apply_negations(state, last_text)
     return state
@@ -289,6 +325,52 @@ def _norm_goal(raw: str) -> str:
     return "selection"
 
 
+def _extract_previously_recommended(messages: list[ChatMessage]) -> list[str]:
+    """Bug 4b: scan prior assistant turns for catalog item names.
+
+    Looks for parenthetical patterns like "(OPQ32r, Verify G+, Java 8 (New))"
+    that the recommend/refine system prompt now instructs the LLM to include.
+    Also scans for known SHL product name patterns as a fallback.
+    Returns a deduped ordered list of names found.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    # Pattern 1: parenthetical "(Name A, Name B, Name C (New))"
+    _PAREN_RE = re.compile(r"\(([^()]{5,300})\)")
+    # Pattern 2: known SHL product prefixes
+    _KNOWN_RE = re.compile(
+        r"\b(OPQ\s*\S*(?:\s+\S+){0,3}|Verify\s+\S+(?:\s+\S+){0,2}"
+        r"|MQ\s+\S+(?:\s+\S+){0,2}|DSI\b"
+        r"|Universal\s+Competency\s+\S+(?:\s+\S+){0,2}"
+        r"|Safety\s+(?:&|and)\s+Dependability\s+\S+"
+        r"|Contact\s+Center\s+\S+(?:\s+\S+){0,3}"
+        r"|Graduate\s+Scenarios"
+        r"|Smart\s+Interview\s+\S+(?:\s+\S+){0,2}"
+        r"|Sales\s+Transformation\s+\S+(?:\s+\S+){0,3}"
+        r"|Global\s+Skills\s+\S+(?:\s+\S+){0,2})",
+        re.IGNORECASE,
+    )
+    for msg in messages:
+        if msg.role.value != "assistant":
+            continue
+        content = msg.content
+        # Extract from parentheticals first (Bug 4a output pattern)
+        for paren_match in _PAREN_RE.finditer(content):
+            inner = paren_match.group(1)
+            for part in re.split(r",\s*(?![^()]*\))", inner):
+                name = part.strip().strip('"\'')
+                if len(name) > 3 and name.lower() not in seen:
+                    seen.add(name.lower())
+                    result.append(name)
+        # Fallback: known product name regex on full text
+        for km in _KNOWN_RE.finditer(content):
+            name = km.group(1).strip()
+            if len(name) > 3 and name.lower() not in seen:
+                seen.add(name.lower())
+                result.append(name)
+    return result
+
+
 def _extract_product_names(text: str) -> list[str]:
     names: list[str] = []
     quoted = re.findall(r'["\']([^"\']{3,})["\']', text)
@@ -328,6 +410,13 @@ def _apply_negations(state: ConversationState, text: str) -> None:
 
 
 def merge_state(old: ConversationState, new: ConversationState) -> ConversationState:
+    # Merge previously_recommended: union, deduped, preserving order
+    seen_prev: set[str] = set()
+    merged_prev: list[str] = []
+    for name in (old.previously_recommended or []) + (new.previously_recommended or []):
+        if name.lower() not in seen_prev:
+            seen_prev.add(name.lower())
+            merged_prev.append(name)
     return ConversationState(
         role_title=new.role_title or old.role_title,
         domain_keywords=new.domain_keywords or old.domain_keywords,
@@ -344,4 +433,5 @@ def merge_state(old: ConversationState, new: ConversationState) -> ConversationS
         off_topic=new.off_topic,
         hiring_stage=new.hiring_stage or old.hiring_stage,
         deployment_goal=new.deployment_goal or old.deployment_goal,
+        previously_recommended=merged_prev,
     )

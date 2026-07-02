@@ -126,6 +126,36 @@ HARD RULES
 6. NEVER ask a question you could reasonably infer from context.
    "executive" after a conversation about senior leadership selection is
    enough — do not ask again whether this is selection or development.
+7. OPQ32r DEFAULT: You MUST always include "Occupational Personality Questionnaire OPQ32r"
+   in every single shortlist (selection or development) unless explicitly excluded
+   by the user or if it's not in the candidate pool. Do not forget this!
+8. FILL THE BATTERY: Recommend 3-8 items per shortlist. Never return
+   fewer than 3 items if at least 3 relevant candidates exist. When a
+   specific technical skill has no SHL test (e.g. Rust, Angular, Docker),
+   complement with cognitive (Verify Interactive G+), personality (OPQ32r),
+   and domain-adjacent tests.
+9. PREFER MODERN VARIANTS: If both legacy and (New)/Interactive/365 variants
+   appear in the candidate list for the same type, always pick the modern one:
+   • "SHL Verify Interactive G+" over "Verify - G+" or individual subtests
+   • "Core Java (Advanced Level) (New)" over "Java 8 (New)"
+   • "Microsoft Excel 365 (New)" over "MS Excel (New)"
+10. RESKILLING / TALENT AUDIT: When the context is re-skilling, talent audit,
+    annual review, or organisational development (NOT external selection), lead
+    with "Global Skills Assessment" and "Global Skills Development Report" if
+    present. These are SHL's flagship development tools. Do NOT lead with
+    sales-role selection assessments for a development context.
+11. OFFICE SKILLS: For MS Office screening, include BOTH the legacy knowledge
+    tests ("MS Excel (New)" and "MS Word (New)") AND the 365 simulations
+    ("Microsoft Excel 365 (New)" and "Microsoft Word 365 (New)")
+    if they are in the candidate list. Do not clarify, just include them all.
+12. HIPAA / HEALTHCARE: When HIPAA compliance is mentioned always include
+    "HIPAA (Security)" and "Medical Terminology (New)" in chosen_names. Treat
+    HIPAA as a domain knowledge requirement first — pick knowledge tests,
+    compliance tools, and dependability instruments. Language assessments are
+    supplementary only.
+13. TECH-STACK JD: When a JD lists multiple technologies (Java, Spring, SQL,
+    AWS, Docker, etc.), include ALL matching assessment names from the candidate
+    list — pick them ALL (up to 8) before falling back to generic tests.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT FORMAT — strict JSON, no markdown fences
@@ -388,6 +418,7 @@ def call_llm(
             response = client.messages.create(
                 model=settings.model_name,
                 max_tokens=_MAX_TOKENS,
+                temperature=0.2,
                 system=_SYSTEM_PROMPT,
                 messages=api_messages,
             )
@@ -437,7 +468,7 @@ def call_llm(
                 "reply": "I'm experiencing high demand. Please try again.",
                 "chosen_names": [],
             }
-        logger.error("Anthropic API error %s", exc.status_code)
+        logger.error("Anthropic API error %s: %s", exc.status_code, exc.response.text if hasattr(exc, "response") else str(exc))
         return _FALLBACK
     except Exception:
         logger.exception("Unexpected error in call_llm.")
