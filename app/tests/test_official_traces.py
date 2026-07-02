@@ -349,9 +349,10 @@ def replay_trace_against_server(trace: OfficialTrace) -> TraceResult:
     scripted = list(trace.scripted_user_turns)  # mutable copy
     turn_num = 0
     violations: list[str] = []
-    # Throttle delay: 13s between requests to stay within 5 RPM (= 1 req/12s)
-    # Can be overridden via THROTTLE_DELAY_S env var (set to 0 to disable)
-    _throttle = float(os.environ.get("THROTTLE_DELAY_S", "13"))
+    # Throttle delay between requests — set THROTTLE_DELAY_S env var to
+    # e.g. "13" when using a Gemini free-tier key (5 RPM limit).
+    # Default 0 = no throttle (fine for Anthropic paid keys).
+    _throttle = float(os.environ.get("THROTTLE_DELAY_S", "0"))
     _last_req_time: float = 0.0
 
     while turn_num < TURN_CAP:

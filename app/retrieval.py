@@ -154,7 +154,15 @@ def semantic_search(
     cosine_sims: NDArray[np.float32] = _emb_matrix @ query_vec
 
     scored: list[tuple[float, CatalogItem]] = []
-    for idx, item in enumerate(catalog):
+    n = min(len(catalog), len(cosine_sims))
+    if n < len(catalog):
+        logger.warning(
+            "Catalog has %d items but embedding matrix has %d rows; "
+            "only scoring first %d items. Re-run precompute_embeddings.py to fix.",
+            len(catalog), len(cosine_sims), n,
+        )
+    for idx in range(n):
+        item = catalog[idx]
         cos_sim: float = float(cosine_sims[idx])
         composite: float = score_candidate(item, state, cos_sim)
         scored.append((composite, item))

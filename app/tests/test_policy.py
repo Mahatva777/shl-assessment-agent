@@ -69,6 +69,7 @@ class TestRefineMode:
             role_title="Developer",
             domain_keywords=["python"],
             seniority_text="junior",
+            previously_recommended=["Verify - Numerical Ability"],  # Bug 2: prior shortlist needed
         )
         msg = _msg("user", "Also add personality tests")
         assert decide_mode(state, msg) == "refine"
@@ -78,6 +79,7 @@ class TestRefineMode:
             role_title="Developer",
             domain_keywords=["python"],
             seniority_text="junior",
+            previously_recommended=["OPQ32r", "Verify G+"],  # Bug 2: prior shortlist needed
         )
         msg = _msg("user", "Actually, drop the OPQ")
         assert decide_mode(state, msg) == "refine"
@@ -87,6 +89,7 @@ class TestRefineMode:
             role_title="Manager",
             domain_keywords=["sales"],
             wants_personality=True,
+            previously_recommended=["OPQ32r"],  # Bug 2: prior shortlist needed
         )
         msg = _msg("user", "Instead of personality, focus on cognitive tests")
         assert decide_mode(state, msg) == "refine"

@@ -6,6 +6,7 @@ Deterministic code handles ONLY:
   - refusal (safety, legal, adversarial, non-SHL)
   - compare detection
   - explicit refinement detection
+  - post-clarify recommend forcing
 
 The LLM owns clarify / consult / recommend / refine decisions.
 """
@@ -14,14 +15,20 @@ import re
 from app.schemas import ChatMessage
 from app.state_extraction import ConversationState
 
+# ── Refuse gate ────────────────────────────────────────────────────────────────
 _REFUSE_RE = re.compile(
-    r"\b(legal\s+(?:require|complian|advi|risk|liability)"
+    r"\b("
+    # "legal require..." matches "legal requirements", "legal requirement", etc.
+    # No trailing \b so prefix alternations like 'require' match 'requirements'
+    r"legal\s+(?:require|complian|advi|risk|liability)"
     r"|labor\s+law|employment\s+law|discrimination\s+law"
-    r"|gdpr|hipaa|eeoc|ada\s+complian"
+    r"|(?:hipaa|gdpr|eeoc|ada)\s+(?:law|regulat|legal|obligat|require|liabilit)"
+    r"|(?:legally|law)\s+(?:required?|mandated?|obligated?).*(?:hipaa|gdpr|eeoc|ada)"
     r"|how\s+(?:to|should\s+(?:i|we))\s+(?:hire|recruit|interview|fire|terminate)"
     r"|hiring\s+(?:strategy|process|best\s+practice|tip|guide)"
     r"|salary\s+negotiat|compensation\s+structure|offer\s+letter"
-    r"|background\s+check\s+(?:legal|law))\b",
+    r"|background\s+check\s+(?:legal|law)"
+    r")",
     re.IGNORECASE,
 )
 _INJECTION_RE = re.compile(
@@ -54,15 +61,72 @@ _REFINE_RE = re.compile(
 )
 
 
-def get_forced_mode(state: ConversationState, last_user: ChatMessage) -> str | None:
-    """Return forced mode if deterministic rules apply; None means LLM decides."""
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+def _count_non_recommending_turns(messages: list[ChatMessage]) -> int:
+    """Count assistant turns that produced no shortlist.
+
+    A turn is 'non-recommending' when it either:
+      • ends with '?'  (explicit clarifying question), OR
+      • contains no SHL product URLs / table rows
+        (consult / refuse turns that also gave no shortlist)
+    """
+    count = 0
+    for m in messages:
+        if m.role.value != "assistant":
+            continue
+        content = m.content.strip()
+        has_shortlist = "shl.com/products" in content or (
+            content.count("|") >= 3 and "http" in content
+        )
+        if content.endswith("?") or not has_shortlist:
+            count += 1
+    return count
+
+
+# ── get_forced_mode ───────────────────────────────────────────────────────────
+
+def get_forced_mode(
+    state: ConversationState,
+    last_user: ChatMessage,
+    messages: list[ChatMessage] | None = None,
+) -> str | None:
+    """Return forced mode if deterministic rules apply; None means LLM decides.
+
+    Bug 2 fixes applied:
+    - Accepts optional messages list for prior-shortlist awareness.
+    - Forced 'refine' only when state.previously_recommended is non-empty
+      (i.e. a shortlist was actually delivered before this turn).
+    - Forces 'recommend' after >= 1 non-recommending turn with enough info.
+    """
     text = last_user.content
-    if state.off_topic or _REFUSE_RE.search(text) or _INJECTION_RE.search(text) or _NON_SHL_RE.search(text):
+
+    # Safety / off-topic gates — evaluated first, unconditionally.
+    if (
+        state.off_topic
+        or _REFUSE_RE.search(text)
+        or _INJECTION_RE.search(text)
+        or _NON_SHL_RE.search(text)
+    ):
         return "refuse"
+
     if _COMPARE_RE.search(text) and len(state.compare_targets) >= 2:
         return "compare"
-    if _REFINE_RE.search(text) and state.has_enough_info():
+
+    # Bug 2: only force refine when a prior shortlist actually exists.
+    # Prevents forcing 'refine' on turn 1 before any recommendations delivered.
+    if _REFINE_RE.search(text) and state.has_enough_info() and state.previously_recommended:
         return "refine"
+
+    # Force recommend once: conversation has enough info AND already spent
+    # at least one turn without a shortlist.
+    if (
+        messages is not None
+        and state.has_enough_info()
+        and _count_non_recommending_turns(messages) >= 1
+    ):
+        return "recommend"
+
     return None
 
 
@@ -70,9 +134,10 @@ def decide_mode(
     state: ConversationState,
     last_user: ChatMessage,
     top_candidates: list | None = None,
+    messages: list[ChatMessage] | None = None,
 ) -> str:
     """Backward-compatible wrapper used by tests and legacy callers."""
-    forced = get_forced_mode(state, last_user)
+    forced = get_forced_mode(state, last_user, messages)
     if forced:
         return forced
     if state.has_enough_info():

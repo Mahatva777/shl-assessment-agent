@@ -399,7 +399,7 @@
     "name": "Count Out The Money",
     "url": "https://www.shl.com/products/product-catalog/view/count-out-the-money/",
     "test_type": "Knowledge & Skills",
-    "description": "The Count out the Money â€“US test measures a candidateâ€™s money handling ability. This test is designed for entry-level positions where handling money is required on a regular basis."
+    "description": "The Count out the Money –US test measures a candidateâ€™s money handling ability. This test is designed for entry-level positions where handling money is required on a regular basis."
   },
   {
     "name": "CSS3 (New)",
@@ -418,6 +418,12 @@
     "url": "https://www.shl.com/products/product-catalog/view/customer-service-phone-simulation/",
     "test_type": "Biodata & Situational Judgment",
     "description": "As part of Contact Center Simulations, the Customer Service Phone Simulation is designed for entry-level positions in a contact center environment. Sample tasks for these jobs include: verify the customer or account; take ownership of customer issues; interact with customers to provide information; respond positively to difficult, irate, or confused customers; listen attentively to callers; resolve calls in a timely manner; navigate within multiple information menus to view customer account details and process information; and type information quickly and accurately. Potential job titles that use this solution are: Call Center Representative, Contact Center Representative, Contact Center Agent, Customer Service Agent, Customer Service Representative, and Customer Advocate.\n\"Please note that for Simplified Chinese version the audio is available in both Mandarin and Cantonese.\""
+  },
+  {
+    "name": "Customer Service Phone Solution",
+    "url": "https://www.shl.com/products/product-catalog/view/customer-service-phone-solution/",
+    "test_type": "Biodata & Situational Judgment",
+    "description": "As part of Contact Center Simulations, the Customer Service Phone Solution includes a contact center simulation and two behavioral tests designed to measure a wide range of skills, competencies, and behavioral tendencies relevant for contact center jobs. The Contact Center Simulation provides an opportunity for candidates to interact with simulated customers in a contact center environment. Designed to measure a candidateâ€™s ability to listen attentively to the customer, take ownership of customer issues, resolve issues, navigate to find information, and enter information accurately, the Contact Center Simulation is intended to measure how a candidate will respond in a variety of customer situations and assess the candidateâ€™s computer skills in a contact center setting. The behavioral tests in this solution are intended to measure the candidateâ€™s learning potential and the tendency to meet goals and work hard, even when faced with obstacles. Collectively, the assessments in this solution measure a wide range of important skills, abilities, and behaviors for entry-level contact center roles.\n\"Please note that for Simplified Chinese version the audio is available in both Mandarin and Cantonese.\""
   },
   {
     "name": "Cyber Risk (New)",
@@ -588,10 +594,40 @@
     "description": "Assess and benchmark your leaders against enterprise leadership - the model for leader impact to drive business results in a complex work environment.\r\nFor more information, visit: \r\nhttps://www.shl.com/en/identify-develop-leaders/enterprise-leadership/ ."
   },
   {
+    "name": "Entry Level Cashier Solution",
+    "url": "https://www.shl.com/products/product-catalog/view/entry-level-cashier-solution/",
+    "test_type": "Competencies",
+    "description": "The Precise Fit Entry Level Cashier Solution is for entry-level retail positions in which employees receive payment in the form of cash, check, or credit cards for goods purchased. Sample tasks for these jobs include, but are not limited to: handling payments, offering customer service, and issuing receipts and refunds.\nReport Language Availability: English (USA)"
+  },
+  {
     "name": "Entry Level Customer Serv-Retail & Contact Center",
     "url": "https://www.shl.com/products/product-catalog/view/entry-level-customer-serv-retail-and-contact-center/",
     "test_type": "Personality & Behavior",
     "description": "The Precise Fit Entry Level Customer Service Solution (Retail/Contact Center) is for entry-level positions in which employees interact with customers by providing information or carrying out customer requests related to an organizations products or services. Sample tasks for these jobs include, but are not limited to: interacting with customers on the phone or in person; taking orders; solving product or service issues; and responding positively to difficult or irate customers.\nReport Language Availability: English (USA)"
+  },
+  {
+    "name": "Entry Level Customer Service (General) Solution",
+    "url": "https://www.shl.com/products/product-catalog/view/entry-level-customer-service-general-solution/",
+    "test_type": "Competencies",
+    "description": "The Precise Fit Entry Level Customer Service Solution (General) is for a wide range of entry-level positions where employees are expected to interact with customers when carrying out critical tasks of the job. This includes positions that require frequent interactions with customers, or positions where customer service is not central to the role, but is still essential for successful performance on the job. Sample tasks for these jobs include, but are not limited to: interacting with customers on the phone to provide information; taking orders; solving product or service issues; and responding positively to difficult or irate customers.\nReport Language Availability: English (USA)"
+  },
+  {
+    "name": "Entry Level Hotel Front Desk Solution",
+    "url": "https://www.shl.com/products/product-catalog/view/entry-level-hotel-front-desk-solution/",
+    "test_type": "Competencies",
+    "description": "The Precise Fit Entry Level Hotel Front Desk Solution is for entry-level customer service positions in the hospitality industry. The solution is appropriate for positions in which the majority of the work is done at the front or guest check-in desk. Sample tasks may include: welcoming guests warmly, issuing keys to guests, and accepting payment.\nReport Language Availability: English (USA)"
+  },
+  {
+    "name": "Entry Level Sales Solution",
+    "url": "https://www.shl.com/products/product-catalog/view/entry-level-sales-solution/",
+    "test_type": "Competencies",
+    "description": "The Precise Fit Entry Level Sales Roles Solution is for entry-level positions in which employees proactively sell products or services to customers and have their compensation and/or performance based on sales revenue. Sample tasks for these jobs include, but are not limited to: promoting products to customers, persuading customers to buy products, and completing a transaction with a customer.\nReport Language Availability: English (USA)"
+  },
+  {
+    "name": "Entry Level Technical Support Solution",
+    "url": "https://www.shl.com/products/product-catalog/view/entry-level-technical-support-solution/",
+    "test_type": "Personality & Behavior",
+    "description": "The Precise Fit Entry Level Technical Support Solution is for entry-level positions in which employees provide technical assistance to computer users in a contact center environment. Sample tasks for these jobs include, but are not limited to: answer questions or resolve computer problems for clients in person, via telephone, or electronically, provide assistance concerning the use of computer hardware and software, including printing, installation, word processing, electronic mail, and\r\noperating systems.\nReport Language Availability: English (USA)"
   },
   {
     "name": "ETL Testing (New)",
@@ -1662,6 +1698,12 @@
     "description": "As part of Contact Center Simulations, the Sales & Service Phone Simulation is designed for contact center roles that involve sales or sales-related behaviors such as recommending products or services and retaining customers. Sample tasks for these jobs include: interacting with customers on the phone to sell a product/service; adding new or upgraded products or services; extending promotional or retention offers; responding appropriately to customer objections; navigating to information menus to assist the customer and process information; and typing information quickly and accurately. Potential job titles that use this simulation include: telesales representative, outbound sales representative, telemarketer, and contact center representative."
   },
   {
+    "name": "Sales & Service Phone Solution",
+    "url": "https://www.shl.com/products/product-catalog/view/sales-and-service-phone-solution/",
+    "test_type": "Biodata & Situational Judgment",
+    "description": "As part of Contact Center Simulations, the Sales & Service Phone Solution includes a contact center simulation and three behavioral tests designed to measure a wide range of skills, competencies, and behavioral tendencies relevant for contact center jobs. This solution is designed for contact center roles that involve sales or sales-related behaviors such as recommending products or services and retaining customers. Sample tasks for these jobs include: interact with customers on the phone to sell a product/service; add new or upgraded products or services; extend promotional or retention offers; respond appropriately to customer objections; navigate to information menus to assist the customer and process information; and type information quickly and accurately. Potential job titles that use this simulation are: Telesales Representative, Telemarketer, and Contact Center Representative. The behavioral tests in this solution are intended to measure the candidateâ€™s sales focus, learning potential, and the tendency to meet goals and work hard, even when faced with obstacles. Collectively, the assessments in this solution measure a wide range of important skills, abilities, and behaviors for entry-level contact center roles involving sales or sales and service."
+  },
+  {
     "name": "Sales Interview Guide",
     "url": "https://www.shl.com/products/product-catalog/view/sales-interview-guide/",
     "test_type": "Personality & Behavior",
@@ -1782,13 +1824,13 @@
     "description": "Evaluates ability to identify specific patterns in data or situations and generalize that information to broader contexts."
   },
   {
-    "name": "SHL Verify Interactive â€“ Deductive Reasoning",
+    "name": "SHL Verify Interactive – Deductive Reasoning",
     "url": "https://www.shl.com/products/product-catalog/view/shl-verify-interactive-deductive-reasoning/",
     "test_type": "Ability & Aptitude",
     "description": "Measures the ability to draw logical conclusions based on information provided, identify strengths and weaknesses of arguments, and complete scenarios using incomplete information."
   },
   {
-    "name": "SHL Verify Interactive â€“ Numerical Reasoning",
+    "name": "SHL Verify Interactive – Numerical Reasoning",
     "url": "https://www.shl.com/products/product-catalog/view/shl-verify-interactive-numerical-reasoning/",
     "test_type": "Ability & Aptitude",
     "description": "Assesses how the candidate comprehends numerical information in various formats."
@@ -2055,7 +2097,7 @@
     "name": "Verify - General Ability Screen",
     "url": "https://www.shl.com/products/product-catalog/view/verify-general-ability-screen/",
     "test_type": "Ability & Aptitude",
-    "description": "The General Ability Screen is a first for us â€“ a measure of general mental ability or â€˜gâ€™ .\r\nTargeted at â€˜entry-levelâ€™ roles, General Ability Screen is intended to precede other measures to provide process efficiency, and to ensure candidates experience the most positive possible assessment process, by being quick, fair and available as an online test 24/7/365. \r\nAs the name suggests, the test is designed to be used in screening or sifting processes"
+    "description": "The General Ability Screen is a first for us – a measure of general mental ability or â€˜gâ€™ .\r\nTargeted at â€˜entry-levelâ€™ roles, General Ability Screen is intended to precede other measures to provide process efficiency, and to ensure candidates experience the most positive possible assessment process, by being quick, fair and available as an online test 24/7/365. \r\nAs the name suggests, the test is designed to be used in screening or sifting processes"
   },
   {
     "name": "Verify - Inductive Reasoning (2014)",
@@ -2067,7 +2109,7 @@
     "name": "Verify - Numerical Ability",
     "url": "https://www.shl.com/products/product-catalog/view/verify-numerical-ability/",
     "test_type": "Ability & Aptitude",
-    "description": "The next-generation Verify Numerical Ability Test provides a replacement for the existing Numerical Reasoning test in our Verify range of ability tests and the Global Cognitive Index â€“ Adaptive Quantitative test, and measures the ability to:\r\nâ€¢\tDerive the numerical problem from a written problem\r\nâ€¢\tCalculate the answer to numerical equations\r\nâ€¢\tWork with numerical data in a realistic workplace context\r\n\r\nThe test is 20 minutes long, has 16 items and is designed to provide an indication of how an individual will perform when asked to work with numerical information or statistical details."
+    "description": "The next-generation Verify Numerical Ability Test provides a replacement for the existing Numerical Reasoning test in our Verify range of ability tests and the Global Cognitive Index – Adaptive Quantitative test, and measures the ability to:\r\nâ€¢\tDerive the numerical problem from a written problem\r\nâ€¢\tCalculate the answer to numerical equations\r\nâ€¢\tWork with numerical data in a realistic workplace context\r\n\r\nThe test is 20 minutes long, has 16 items and is designed to provide an indication of how an individual will perform when asked to work with numerical information or statistical details."
   },
   {
     "name": "Verify - Technical Checking - Next Generation",
@@ -2157,7 +2199,7 @@
     "name": "What Is The Value - US",
     "url": "https://www.shl.com/products/product-catalog/view/what-is-the-value-us/",
     "test_type": "Knowledge & Skills",
-    "description": "The What is the Value â€“US test measures money handling ability. This test is designed for entry-level positions where handling money is required on a regular basis."
+    "description": "The What is the Value –US test measures money handling ability. This test is designed for entry-level positions where handling money is required on a regular basis."
   },
   {
     "name": "Workplace Administration Skills (New)",
@@ -2214,7 +2256,7 @@
     "description": "Introducing the new 360 Digital Report from SHL! Our latest offering revolutionizes the reporting experience for our 360 products, catering to the modern user's needs for enhanced usability and actionable insights. With a sleek, interactive interface, this report provides a exploration of feedback data, focusing on user development and comprehensive evaluation. Users can now enjoy a visually engaging experience, with the capability to download the report in PDF format for offline access. Upgrade your reporting experience today with SHL's innovative 360 Digital Report!"
   },
   {
-    "name": "360Â° Multi-Rater Feedback System (MFS)",
+    "name": "360° Multi-Rater Feedback System (MFS)",
     "url": "https://www.shl.com/products/product-catalog/view/360-multi-rater-feedback-system-mfs/",
     "test_type": "Development & 360",
     "description": "SHL 360, or the Multi-Rater Feedback System (â€˜MFSâ€™), provides a holistic 360-degree view of an employee by gathering feedback from the employeeâ€™s manager, peers, direct reports, and/or other raters.  By offering a wide range of perspectives, 360 feedback gives employees a more thorough understanding of not only their strengths, weaknesses, and development opportunities, but also their impact on others.  360-degree multi-rater assessments are based on SHLâ€™s Universal Competency Framework (â€œUCFâ€), using our proven library of research-driven competencies to provide opportunities for managers, peers, and direct reports to supply useful developmental feedback that they may not otherwise share.  SHL can also offer support and training throughout the entire process, from defining objectives through interpreting and delivering the feedback.  360 feedback serves all levels and industries and is a positive and powerful addition to your performance management system."

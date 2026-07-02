@@ -7,6 +7,7 @@ import threading
 from typing import Optional
 
 from app.catalog_loader import CatalogItem, load_catalog
+from app.battery import diversify, detect_catalog_limitations
 from app.config import get_settings
 from app.guards import (
     build_recommendations_from_names,
@@ -175,10 +176,123 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
 
     if catalog:
         try:
-            scored = semantic_search(query, state, catalog, top_k=20)
+            scored = semantic_search(query, state, catalog, top_k=25)
+            scored = diversify(scored, state, max_per_family=3, max_per_category=3)
             candidates = [item for _, item in scored]
         except Exception:
             logger.exception("Retrieval failed.")
+
+    # ── 4b. Pool augmentation — always inject high-value anchors ────────────
+    # These items are expected in almost every professional battery but may not
+    # surface from semantic search alone (different vocabulary, language bias,
+    # encoding issues, etc.).  We inject them at the END of the candidate list
+    # so they don't displace domain-specific top results.
+    if forced_mode not in ("refuse", "compare") and catalog:
+        candidate_ids = {c.id for c in candidates}
+
+        # Hard-pinned anchors: always in pool so LLM can apply Hard Rules 7 & 8.
+        _ALWAYS_INJECT = [
+            "Occupational Personality Questionnaire OPQ32r",
+            "SHL Verify Interactive G+",
+        ]
+        for name in _ALWAYS_INJECT:
+            item = find_catalog_item(name, catalog)
+            if item and item.id not in candidate_ids:
+                candidates.append(item)
+                candidate_ids.add(item.id)
+
+        # Keyword-triggered injections: domain items that language/semantic bias
+        # often misses even though they are clearly relevant.
+        all_text = " ".join(
+            m.content.lower() for m in messages if m.role.value == "user"
+        )
+
+        keyword_rules: list[tuple[list[str], list[str]]] = [
+            # Healthcare / HIPAA scenarios – inject knowledge tests alongside language tests
+            (
+                ["hipaa", "medical terminolog", "healthcare", "patient record", "health admin"],
+                [
+                    "HIPAA (Security)",
+                    "Medical Terminology (New)",
+                    "Dependability and Safety Instrument (DSI)",
+                    "Microsoft Word 365 - Essentials (New)",
+                    "Microsoft Excel 365 - Essentials (New)",
+                ],
+            ),
+            # Graduate / trainee schemes
+            (
+                ["graduate", "trainee", "management trainee", "grad scheme", "recent graduate"],
+                ["Graduate Scenarios", "SHL Verify Interactive G+"],
+            ),
+            # Sales re-skilling / talent audit — inject development-oriented tools,
+            # NOT sales-role selection tools (manager vs. IC disambiguation done by LLM)
+            (
+                [
+                    "re-skill", "reskill", "talent audit", "restructur",
+                    "sales organization", "sales org", "annual talent",
+                ],
+                [
+                    "Global Skills Assessment",
+                    "Global Skills Development Report",
+                    "OPQ MQ Sales Report",
+                    "Sales Transformation 2.0 - Individual Contributor",
+                    "Occupational Personality Questionnaire OPQ32r",
+                ],
+            ),
+            # Safety-critical / industrial
+            (
+                [
+                    "plant operator", "chemical facility", "safety critical",
+                    "safety-critical", "industrial", "manufacturing",
+                ],
+                [
+                    "Manufac. & Indust. - Safety & Dependability 8.0",
+                    "Workplace Health and Safety (New)",
+                    "Dependability and Safety Instrument (DSI)",
+                ],
+            ),
+            # Leadership / senior leadership OPQ reports
+            (
+                ["senior leadership", "leadership benchmark", "succession", "executive", "c-suite"],
+                [
+                    "OPQ Universal Competency Report 2.0",
+                    "OPQ Leadership Report",
+                    "Occupational Personality Questionnaire OPQ32r",
+                ],
+            ),
+            # MS Office daily screening — inject BOTH 365 and legacy knowledge variants
+            (
+                ["excel", "word", "office", "spreadsheet", "admin assistant", "administrative"],
+                [
+                    "Microsoft Excel 365 (New)",
+                    "Microsoft Excel 365 - Essentials (New)",
+                    "Microsoft Word 365 (New)",
+                    "Microsoft Word 365 - Essentials (New)",
+                    "MS Excel (New)",
+                    "MS Word (New)",
+                ],
+            ),
+            # Java / full-stack engineering — inject specific tech-stack assessments
+            # that semantic search often misses because the JD vocabulary is dense
+            (
+                ["java", "spring", "sql", "aws", "docker", "full-stack", "fullstack", "backend"],
+                [
+                    "Spring (New)",
+                    "SQL (New)",
+                    "Amazon Web Services (AWS) Development (New)",
+                    "Docker (New)",
+                    "Core Java (Advanced Level) (New)",
+                    "SHL Verify Interactive G+",
+                ],
+            ),
+        ]
+        for keywords, inject_names in keyword_rules:
+            if any(kw in all_text for kw in keywords):
+                for name in inject_names:
+                    item = find_catalog_item(name, catalog)
+                    if item and item.id not in candidate_ids:
+                        candidates.append(item)
+                        candidate_ids.add(item.id)
 
     if forced_mode == "compare":
         targets = state.compare_targets or []
@@ -223,6 +337,11 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
     llm_mode: str = result.get("mode", "consult")
     reply: str = sanitise_reply(result.get("reply") or "Here are the SHL assessments I recommend.")
     chosen_names: list[str] = result.get("chosen_names") or []
+
+    if llm_mode == "consult":
+        notice = detect_catalog_limitations(state, scored)
+        if notice:
+            reply = f"{notice}\n\n{reply}"
 
     # ── 7. Grounding — only real catalog items may appear in output ───────
     recs = []

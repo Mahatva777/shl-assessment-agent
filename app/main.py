@@ -107,9 +107,17 @@ def health() -> dict[str, str]:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
-    from app.agent import agent  # imported here to avoid circular at module level
-
-    return agent(request.messages)
+    try:
+        from app.agent import agent  # imported here to avoid circular at module level
+        return agent(request.messages)
+    except Exception:
+        logger.exception("Unhandled error in /chat")
+        return ChatResponse(
+            reply="I encountered an error. Please try again.",
+            recommendations=[],
+            end_of_conversation=False,
+            messages=request.messages,
+        )
 
 
 @app.exception_handler(Exception)
