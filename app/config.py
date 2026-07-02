@@ -16,6 +16,16 @@ class Settings:
     catalog_path: str = field(
         default_factory=lambda: os.getenv("CATALOG_PATH", "data/shl_product_catalog.json"),
     )
+    embeddings_path: str = field(
+        default_factory=lambda: os.getenv(
+            "EMBEDDINGS_PATH", "data/catalog_embeddings.npy"
+        ),
+    )
+    metadata_path: str = field(
+        default_factory=lambda: os.getenv(
+            "METADATA_PATH", "data/catalog_metadata.json"
+        ),
+    )
     embedding_model: str = field(
         default_factory=lambda: os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
     )

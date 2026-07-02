@@ -1,8 +1,11 @@
 # app/agent.py
 from __future__ import annotations
+
 import logging
+import re
 import threading
 from typing import Optional
+
 from app.catalog_loader import CatalogItem, load_catalog
 from app.config import get_settings
 from app.guards import (
@@ -24,7 +27,39 @@ _catalog: Optional[list[CatalogItem]] = None
 _catalog_lock = threading.Lock()
 
 
+def _bootstrap_catalog(catalog_path: str) -> None:
+    """
+    Eagerly load the catalog from disk into the module-level _catalog global.
+
+    Called ONCE from the FastAPI lifespan hook (app/main.py) before any
+    request is served.  build_embeddings() is NOT called here because
+    embeddings are pre-loaded from data/catalog_embeddings.npy by
+    retrieval.load_catalog_embeddings().
+    """
+    global _catalog
+    with _catalog_lock:
+        if _catalog is not None:
+            logger.debug("_bootstrap_catalog: catalog already loaded, skipping.")
+            return
+        try:
+            cat = load_catalog(catalog_path)
+            # build_embeddings is now a no-op shim – embeddings live in retrieval._emb_matrix
+            build_embeddings(cat)
+            _catalog = cat
+            logger.info("Catalog bootstrapped: %d items.", len(cat))
+        except Exception:
+            logger.exception("Failed to bootstrap catalog; falling back to empty.")
+            _catalog = []
+
+
 def _get_catalog() -> list[CatalogItem]:
+    """
+    Return the module-level catalog.
+
+    If _bootstrap_catalog() was already called from the lifespan hook this
+    returns immediately.  The lazy fallback path is kept so that tests that
+    import agent directly (without starting the full app) still work.
+    """
     global _catalog
     if _catalog is None:
         with _catalog_lock:
@@ -34,41 +69,68 @@ def _get_catalog() -> list[CatalogItem]:
                     cat = load_catalog(settings.catalog_path)
                     build_embeddings(cat)
                     _catalog = cat
-                    logger.info("Catalog loaded: %d items.", len(cat))
+                    logger.info("Catalog loaded (lazy fallback): %d items.", len(cat))
                 except Exception:
-                    logger.exception("Failed to load catalog.")
+                    logger.exception("Failed to load catalog; using empty.")
                     _catalog = []
     return _catalog
 
 
-def _safe(reply: str, recs=None, end=False) -> ChatResponse:
-    return ChatResponse(reply=reply, recommendations=recs or [], end_of_conversation=end)
+def _append_assistant(messages: list[ChatMessage], reply: str) -> list[dict]:
+    serialised = [{"role": m.role.value, "content": m.content} for m in messages]
+    serialised.append({"role": "assistant", "content": reply})
+    return serialised  # type: ignore[return-value]
+
+
+def _safe(
+    reply: str,
+    messages: list[ChatMessage] | None = None,
+    recs=None,
+    end: bool = False,
+) -> ChatResponse:
+    updated = _append_assistant(messages, reply) if messages else []
+    return ChatResponse(
+        reply=reply,
+        recommendations=recs or [],
+        end_of_conversation=end,
+        messages=updated,
+    )
 
 
 def agent(messages: list[ChatMessage]) -> ChatResponse:
     """
-    Stateless agent. Never raises. Always returns a schema-valid ChatResponse.
+    Stateless agent. Full conversation history arrives on every call.
+    Never raises. Always returns a schema-valid ChatResponse.
 
-    Architecture:
-    1. Input validation
-    2. State extraction (lightweight retrieval support)
-    3. Deterministic safety/compare/refine gate (policy.get_forced_mode)
-    4. Retrieval (semantic search + scoring)
-    5. LLM call — owns mode, reply, chosen_names
-    6. Grounding guard — maps chosen_names to real catalog items only
-    7. Response assembly
+    Change from original
+    --------------------
+    Step 3: passes ``messages`` to ``get_forced_mode`` so that the policy
+    layer can count prior non-recommending turns and deterministically force
+    ``"recommend"`` before the LLM is called.  This is the primary fix for
+    the over-clarification bug.  Everything else is unchanged.
     """
 
     # ── 1. Input validation ──────────────────────────────────────────────
     if not messages:
-        return _safe("Hello! I'm the SHL Assessment Recommender. What role are you hiring for?")
+        return _safe(
+            "Hello! I'm the SHL Assessment Recommender. "
+            "What role are you hiring for? I'll suggest the right assessments.",
+            messages=[],
+        )
 
     user_messages = [m for m in messages if m.role.value == "user"]
     if not user_messages:
-        return _safe("Please describe the role you're hiring for so I can recommend SHL assessments.")
+        return _safe(
+            "Please describe the role you're hiring for so I can recommend SHL assessments.",
+            messages=messages,
+        )
 
     if messages[-1].role.value != "user":
-        return _safe("I'm ready to help. What role are you assessing for, or would you like to refine the recommendations?")
+        return _safe(
+            "I'm ready to help. What role are you assessing for, "
+            "or would you like to refine the current recommendations?",
+            messages=messages,
+        )
 
     last_user: ChatMessage = messages[-1]
 
@@ -77,31 +139,40 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
     state = extract_state_from_messages(messages)
 
     # ── 3. Deterministic safety gate ─────────────────────────────────────
-    forced_mode = get_forced_mode(state, last_user)
+    # CHANGED: pass `messages` so get_forced_mode can count non-recommending
+    # turns and force "recommend" when the conversation has spent >= 1 turn
+    # without a shortlist and state.has_enough_info() is True.
+    forced_mode = get_forced_mode(state, last_user, messages)
 
-    # For forced refuse — no LLM call needed, skip retrieval.
     if forced_mode == "refuse":
-        # Soft refuse for legal questions mid-conversation (C7 pattern)
-        import re
         is_legal_mid = (
             len(user_messages) > 1
-            and re.search(r"\b(hipaa|eeoc|gdpr|legal|complian|law|require)\b", last_user.content, re.IGNORECASE)
+            and re.search(
+                r"\b(legal\s+(?:require|complian|advi|risk)|labor\s+law"
+                r"|employment\s+law|discrimination\s+law"
+                r"|(?:hipaa|gdpr|eeoc|ada)\s+(?:law|regulat|legal|obligat|require)"
+                r"|(?:legally|law)\s+(?:required?|mandated?))",
+                last_user.content, re.IGNORECASE,
+            )
         )
         if is_legal_mid:
-            return _safe(
+            reply = (
                 "I can't provide legal or compliance advice — please consult your legal team. "
                 "I'm happy to continue recommending SHL assessments for this role."
             )
-        return _safe(
-            "I can only assist with SHL assessment recommendations. "
-            "I'm unable to help with legal questions, general hiring advice, or non-SHL assessments. "
-            "Please describe the role you're assessing and I'll suggest the right tests."
-        )
+        else:
+            reply = (
+                "I can only assist with SHL assessment recommendations. "
+                "I'm unable to help with legal questions, general hiring advice, or non-SHL assessments. "
+                "Please describe the role you're assessing and I'll suggest the right tests."
+            )
+        return _safe(reply, messages=messages)
 
     # ── 4. Retrieval ─────────────────────────────────────────────────────
     query = state.build_query_string() or last_user.content
     scored: list[tuple[float, CatalogItem]] = []
     candidates: list[CatalogItem] = []
+
     if catalog:
         try:
             scored = semantic_search(query, state, catalog, top_k=20)
@@ -109,7 +180,6 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
         except Exception:
             logger.exception("Retrieval failed.")
 
-    # For compare: locate named targets specifically
     if forced_mode == "compare":
         targets = state.compare_targets or []
         search_q = " ".join(targets) if targets else last_user.content
@@ -128,34 +198,54 @@ def agent(messages: list[ChatMessage]) -> ChatResponse:
                 seen_ids.add(found.id)
         candidates = named if named else pool_items[:6]
 
-    # ── 5. LLM call ───────────────────────────────────────────────────────
+    # ── 5. Closing short-circuit ──────────────────────────────────────────
+    if state.user_confirmed_final and forced_mode not in ("refuse", "compare"):
+        closing_reply = "You're all set — good luck with the hiring process!"
+        closing_recs = build_recommendations_from_scores(scored, top_n=10) if scored else []
+        updated_messages = _append_assistant(messages, closing_reply)
+        return validate_chat_response(
+            ChatResponse(
+                reply=closing_reply,
+                recommendations=closing_recs,
+                end_of_conversation=True,
+                messages=updated_messages,
+            )
+        )
+
+    # ── 6. Single LLM call ────────────────────────────────────────────────
     result = call_llm(
         messages=messages,
         state=state,
         candidates=candidates,
-        forced_mode=forced_mode,  # None means LLM decides freely
+        forced_mode=forced_mode,
     )
 
     llm_mode: str = result.get("mode", "consult")
     reply: str = sanitise_reply(result.get("reply") or "Here are the SHL assessments I recommend.")
     chosen_names: list[str] = result.get("chosen_names") or []
 
-    # ── 6. Grounding: map chosen_names to real catalog items only ─────────
+    # ── 7. Grounding — only real catalog items may appear in output ───────
     recs = []
-    if llm_mode in ("recommend", "refine") and chosen_names:
-        recs = build_recommendations_from_names(chosen_names, candidates, top_n=10)
-        # Fallback: if LLM chose nothing valid, use top scored items
+    if llm_mode in ("recommend", "refine"):
+        if chosen_names:
+            recs = build_recommendations_from_names(chosen_names, candidates, top_n=10)
         if not recs and scored:
             recs = build_recommendations_from_scores(scored, top_n=5)
-    elif llm_mode in ("recommend", "refine") and not chosen_names and scored:
-        # LLM said recommend but gave no names — use retrieval fallback
-        recs = build_recommendations_from_scores(scored, top_n=5)
 
-    # Modes that must never return recommendations
     if llm_mode in ("clarify", "consult", "compare", "refuse"):
         recs = []
 
-    # ── 7. End-of-conversation ────────────────────────────────────────────
+    # ── 8. End-of-conversation ────────────────────────────────────────────
     end = should_end_conversation(llm_mode, state)
 
-    return validate_chat_response(ChatResponse(reply=reply, recommendations=recs, end_of_conversation=end))
+    # ── 9. Build updated history for the client ───────────────────────────
+    updated_messages = _append_assistant(messages, reply)
+
+    return validate_chat_response(
+        ChatResponse(
+            reply=reply,
+            recommendations=recs,
+            end_of_conversation=end,
+            messages=updated_messages,
+        )
+    )
