@@ -36,7 +36,7 @@ Diversification (family-capping via battery.py)
     ↓
 Rule-based Anchor Injections (OPQ32r / HIPAA constraints)
     ↓
-LLM Conversational Reasoning (Claude 3.5 Sonnet)
+LLM Conversational Reasoning (Claude 5 Sonnet)
     ↓
 Structured API Response
 ```
@@ -58,7 +58,7 @@ Responsible for:
 
 ---
 
-## LLM Conversational Layer (Claude 3.5 Sonnet)
+## LLM Conversational Layer (Claude Sonnet 5)
 
 Responsible for:
 
@@ -185,7 +185,7 @@ shl-assessment-agent/
 │   ├── state_extraction.py   # Extract structured constraints from chat
 │   ├── policy.py             # Conversation policy / decision logic (heuristic gates)
 │   ├── battery.py            # Diversification and catalog limitation detection
-│   ├── llm_client.py         # Anthropic Claude 3.5 Sonnet integration
+│   ├── llm_client.py         # Anthropic Claude 5 Sonnet integration
 │   ├── agent.py              # Top-level agent orchestrator
 │   └── tests/
 │       ├── test_scoring.py   # Unit tests for scoring utilities
