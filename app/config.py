@@ -14,7 +14,7 @@ class Settings:
         default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""),
     )
     model_name: str = field(
-        default_factory=lambda: os.getenv("MODEL_NAME", "claude-sonnet-4-6"),
+        default_factory=lambda: os.getenv("MODEL_NAME", "claude-sonnet-5"),
     )
     catalog_path: str = field(
         default_factory=lambda: os.getenv("CATALOG_PATH", "data/shl_product_catalog.json"),
